@@ -2,8 +2,8 @@
 data:
   # 相对路径统一以项目根目录解析，不依赖命令执行目录。
   root: data/normalized
-  # 必填：确定数据存储格式后填写；null 不允许在运行时静默推断。
-  format: null
+  # MATLAB 导出数据经转换脚本生成 NPZ。
+  format: npz
   # 下列路径相对于 data.root，引用已经划分好的集合。
   subsets:
     train: train
@@ -14,10 +14,16 @@ data:
   # t 以秒为单位，有限且严格递增；x/u 必须有限且与 t 长度一致。
   # 初始状态取 x[0]；固定字段名及形状由数据契约和读取代码校验。
   sample_type: trajectory
-  # 必填：按模型状态顺序填写变量名，必须与数据集元信息一致。
-  state_variables: null
-  # [] 表示无外部输入；有输入时按 u 的列顺序填写变量名。
-  input_variables: []
+  # 预测量顺序必须与数据集元信息一致。
+  # x: [T, 5]；列顺序固定，批次形状为 [B, T, 5]。
+  state_variables: [i_Lr, v_Cr, i_Lm, v_o, i_o]
+  state_units: [A, V, A, V, A]
+  # 输入变量按 u 的列顺序排列。
+  # 已确认的四路开关输入；Vin、R、PFM 频率待明确字段名后补充。
+  input_variables: [Q1_A_high, Q2_A_low, Q3_B_high, Q4_B_low]
+  # 以下约束仅适用于这四路开关，读取代码尚未实现。
+  binary_input_variables: [Q1_A_high, Q2_A_low, Q3_B_high, Q4_B_low]
+  binary_input_allowed_values: [0, 1]
   # 有外部输入时必填：zero_order_hold 或 linear；无输入时保持 null。
   input_interpolation: null
 
