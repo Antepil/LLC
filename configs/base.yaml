@@ -1,0 +1,33 @@
+# Python 训练与评估的数据读取配置；当前仅定义配置，尚无读取实现。
+data:
+  # 相对路径统一以项目根目录解析，不依赖命令执行目录。
+  root: data/normalized
+  # 必填：确定数据存储格式后填写；null 不允许在运行时静默推断。
+  format: null
+  # 下列路径相对于 data.root，引用已经划分好的集合。
+  subsets:
+    train: train
+    validation: validation
+    test: test
+
+  # 每条轨迹包含 t: [T]、x: [T, D_x]，可选 u: [T, D_u]，以及 trajectory_id。
+  # t 以秒为单位，有限且严格递增；x/u 必须有限且与 t 长度一致。
+  # 初始状态取 x[0]；固定字段名及形状由数据契约和读取代码校验。
+  sample_type: trajectory
+  # 必填：按模型状态顺序填写变量名，必须与数据集元信息一致。
+  state_variables: null
+  # [] 表示无外部输入；有输入时按 u 的列顺序填写变量名。
+  input_variables: []
+  # 有外部输入时必填：zero_order_hold 或 linear；无输入时保持 null。
+  input_interpolation: null
+
+  # full_trajectory 使用完整轨迹；window 按采样点切窗。
+  # 长度与时间网格由实际数据决定，本配置不假定轨迹等长或等间隔。
+  sampling:
+    mode: full_trajectory
+    # window 模式必填：length >= 2，stride >= 1，均为整数；完整轨迹模式为 null。
+    window_length: null
+    window_stride: null
+
+  # 数据应先按独立运行/来源组划分集合，再切窗，避免跨集合泄漏。
+  # 归一化统计量随数据保存，且只能由训练集拟合；此处不计算统计量。
