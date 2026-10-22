@@ -6,15 +6,24 @@ function llc_initialize_model(model)
               'No run configuration was supplied. Use generate_llc_dataset to simulate this model.');
     end
     override = getVariable(workspace, 'llc_run_override');
-    required = {'parameters', 'events', 'solver'};
+    required = {'parameters', 'solver'};
     if ~isstruct(override) || ~isscalar(override) || ~all(isfield(override, required))
         error('llc:InvalidSimulationConfig', 'The injected run configuration is incomplete.');
     end
     assignin(workspace, 'llc_p', override.parameters);
-    assignin(workspace, 'llc_gate_source', override.events.gate_source);
-    assignin(workspace, 'llc_events', override.events);
+    if isfield(override, 'events')
+        assignin(workspace, 'llc_gate_source', override.events.gate_source);
+        assignin(workspace, 'llc_events', override.events);
+        stopTime = override.events.stop_time_s;
+    elseif isfield(override, 'control') && isfield(override, 'stop_time_s')
+        assignin(workspace, 'llc_control', override.control);
+        stopTime = override.stop_time_s;
+    else
+        error('llc:InvalidSimulationConfig', ...
+              'Run configuration must contain either events or closed-loop control.');
+    end
     solver = override.solver;
-    set_param(model, 'StopTime', num2str(override.events.stop_time_s, 17), ...
+    set_param(model, 'StopTime', num2str(stopTime, 17), ...
               'Solver', solver.name, ...
               'MaxStep', num2str(solver.max_step_s, 17), ...
               'RelTol', num2str(solver.relative_tolerance, 17), ...

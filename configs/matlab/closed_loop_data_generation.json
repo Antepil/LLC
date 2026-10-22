@@ -1,0 +1,36 @@
+{
+  "schema_version": "llc-closed-loop-data-generation-v1",
+  "model_file": "matlab/models/llc_full_bridge_closed_loop.slx",
+  "output_directory": "data/raw/llc_closed_loop",
+  "solver": {
+    "name": "ode23t",
+    "max_step_s": 1.0e-7,
+    "relative_tolerance": 1.0e-5,
+    "absolute_tolerance": 1.0e-7
+  },
+  "control": {
+    "control_period_s": 1.0e-5,
+    "voltage_filter_time_constant_s": 5.0e-5,
+    "reference_ramp_time_s": 1.0e-3,
+    "initial_frequency_hz": 180000.0,
+    "bias_frequency_hz": 110000.0,
+    "minimum_frequency_hz": 100000.0,
+    "maximum_frequency_hz": 220000.0,
+    "frequency_slew_rate_hz_per_s": 1.0e8,
+    "proportional_gain_hz_per_v": 1000.0,
+    "integral_gain_hz_per_v_s": 5.0e6,
+    "deadtime_s": 2.0e-7,
+    "minimum_pulse_s": 5.0e-7
+  },
+  "initial_state": [0.0, 0.0, 0.0, 0.0],
+  "steady_state_relative_tolerance": 0.02,
+  "conditions": [
+    {
+      "trajectory_id": "closed_loop_vin400_r2p304_vref48",
+      "vin_v": 400.0,
+      "load_ohm": 2.304,
+      "reference_voltage_v": 48.0,
+      "stop_time_s": 1.0e-2
+    }
+  ]
+}
