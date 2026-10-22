@@ -16,7 +16,7 @@ function testStablePeriodicTrajectorySettlesAtTwoMilliseconds(testCase)
         stateTimes, states, gateTimes, gates, 48, testCase.TestData.config);
 
     verifyTrue(testCase, result.settled);
-    verifyTrue(testCase, result.settled_by_2ms);
+    verifyTrue(testCase, result.settled_at_first_checkpoint);
     verifyEqual(testCase, result.first_settled_time_s, 2e-3, 'AbsTol', 1e-12);
     verifyEqual(testCase, result.selected_stop_time_s, 2e-3, 'AbsTol', 1e-12);
     verifyTrue(testCase, result.regulated);
@@ -33,7 +33,7 @@ function testRegulatedDriftingTrajectoryIsNotDynamicallyStable(testCase)
     verifyTrue(testCase, result.regulated);
     verifyFalse(testCase, result.dynamics_stable);
     verifyFalse(testCase, result.settled);
-    verifyFalse(testCase, result.settled_by_2ms);
+    verifyFalse(testCase, result.settled_at_first_checkpoint);
     verifyEqual(testCase, result.selected_stop_time_s, 2.5e-3, 'AbsTol', 1e-12);
 end
 
@@ -48,6 +48,39 @@ function testMissingCompleteCyclesCannotSettle(testCase)
     verifyFalse(testCase, result.dynamics_stable);
     verifyFalse(testCase, result.settled);
     verifyEqual(testCase, result.checkpoints(1).complete_cycle_count, 0);
+end
+
+function testMalformedBridgeSequenceCannotSettle(testCase)
+    [stateTimes, states, gateTimes, gates] = periodicFixture(48, 0);
+    gates(:, 2:4) = 0;
+
+    result = llc_assess_periodic_steady_state( ...
+        stateTimes, states, gateTimes, gates, 48, testCase.TestData.config);
+
+    verifyFalse(testCase, result.settled);
+    verifyFalse(testCase, result.checkpoints(1).gate_cycles_valid);
+end
+
+function testDroppedGateCycleCannotSettle(testCase)
+    [stateTimes, states, gateTimes, gates] = periodicFixture(48, 0);
+    dropped = gateTimes >= 1.80e-3 & gateTimes < 1.81e-3;
+    gates(dropped, :) = 0;
+
+    result = llc_assess_periodic_steady_state( ...
+        stateTimes, states, gateTimes, gates, 48, testCase.TestData.config);
+
+    verifyFalse(testCase, result.settled_at_first_checkpoint);
+    verifyFalse(testCase, result.checkpoints(1).gate_cycles_valid);
+end
+
+function testPartialBoundaryCyclesAreExcluded(testCase)
+    [stateTimes, states, gateTimes, gates] = periodicFixture(48, 0, 3e-6);
+
+    result = llc_assess_periodic_steady_state( ...
+        stateTimes, states, gateTimes, gates, 48, testCase.TestData.config);
+
+    verifyTrue(testCase, result.settled_at_first_checkpoint);
+    verifyEqual(testCase, result.checkpoints(1).complete_cycle_count, 39);
 end
 
 function testUnregulatedTrajectoryIsRetainedThroughFinalCheckpoint(testCase)
@@ -74,9 +107,13 @@ function config = assessmentConfig
     config.ripple_relative_tolerance = 0.05;
     config.ripple_floor_relative_scale = 0.01;
     config.minimum_cycles_per_half_window = 2;
+    config.switching_frequency_limits_hz = [90e3, 110e3];
 end
 
-function [times, states, gateTimes, gates] = periodicFixture(outputMean, currentDrift)
+function [times, states, gateTimes, gates] = periodicFixture(outputMean, currentDrift, gatePhaseShift)
+    if nargin < 3
+        gatePhaseShift = 0;
+    end
     switchingFrequency = 100e3;
     period = 1 / switchingFrequency;
     times = (0:0.5e-6:2.5e-3).';
@@ -86,8 +123,32 @@ function [times, states, gateTimes, gates] = periodicFixture(outputMean, current
               200 + 50 * sin(phase + 0.2), ...
               2 * sin(phase - 0.3), ...
               outputMean + 0.2 * sin(phase + 0.5)];
-    gateTimes = times;
-    q1 = mod(times, period) < 0.45 * period;
-    q2 = mod(times, period) >= 0.5 * period & mod(times, period) < 0.95 * period;
-    gates = double([q1, q2, q2, q1]);
+    [gateTimes, gates] = gateEventFixture(period, times(end), gatePhaseShift);
+end
+
+function [gateTimes, gates] = gateEventFixture(period, stopTime, phaseShift)
+    positivePair = [1, 0, 0, 1];
+    negativePair = [0, 1, 1, 0];
+    offState = zeros(1, 4);
+    cycles = -1:ceil(stopTime / period) + 1;
+    eventTimes = zeros(4 * numel(cycles), 1);
+    eventValues = zeros(4 * numel(cycles), 4);
+    for index = 1:numel(cycles)
+        cycle = cycles(index);
+        positiveStart = phaseShift + cycle * period;
+        rows = (4 * index - 3):(4 * index);
+        eventTimes(rows) = [positiveStart; positiveStart + 0.45 * period; ...
+                            positiveStart + 0.5 * period; positiveStart + 0.95 * period];
+        eventValues(rows, :) = [positivePair; offState; negativePair; offState];
+    end
+    [eventTimes, order] = sort(eventTimes);
+    eventValues = eventValues(order, :);
+    initialIndex = find(eventTimes <= 0, 1, 'last');
+    afterStart = eventTimes > 0 & eventTimes <= stopTime;
+    gateTimes = [0; eventTimes(afterStart)];
+    gates = [eventValues(initialIndex, :); eventValues(afterStart, :)];
+    if gateTimes(end) < stopTime
+        gateTimes(end + 1, 1) = stopTime;
+        gates(end + 1, :) = gates(end, :);
+    end
 end

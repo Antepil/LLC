@@ -64,9 +64,12 @@ function [files, summary] = generate_llc_closed_loop_dataset(hardwareConfigFile,
             signalReport = validateResult(stateTimes, stateValues, gateTimes, gateValues, ...
                                           controlTimes, controlValues, hardware, generation, ...
                                           simulationStopTime);
+            assessmentConfig = generation.steady_state_assessment;
+            assessmentConfig.switching_frequency_limits_hz = ...
+                [generation.control.minimum_frequency_hz, generation.control.maximum_frequency_hz];
             steadyState = llc_assess_periodic_steady_state( ...
                 stateTimes, stateValues, gateTimes, gateValues, ...
-                condition.reference_voltage_v, generation.steady_state_assessment);
+                condition.reference_voltage_v, assessmentConfig);
             raw = struct('state_times_s', stateTimes, 'state_values', stateValues, ...
                          'gate_times_s', gateTimes, 'gate_values', gateValues, ...
                          'control_times_s', controlTimes, 'control_values', controlValues);
@@ -154,7 +157,8 @@ function report = validateResult(stateTimes, stateValues, gateTimes, gateValues,
     gateIntervals = gateEventValues(1:end-1, :);
     offIntervals = ~any(gateIntervals, 2);
     activeIntervals = any(gateIntervals, 2);
-    timingTolerance = 1e-12;
+    tolerances = generation.validation_tolerances;
+    timingTolerance = tolerances.timing_s;
     if ~any(offIntervals) || any(gateWidths(offIntervals) < generation.control.deadtime_s - timingTolerance)
         error('llc:InvalidOutput', 'Applied gates violate the configured deadtime.');
     end
@@ -162,14 +166,15 @@ function report = validateResult(stateTimes, stateValues, gateTimes, gateValues,
             any(gateWidths(activeIntervals) < generation.control.minimum_pulse_s - timingTolerance)
         error('llc:InvalidOutput', 'Applied gates violate the configured minimum pulse width.');
     end
-    if any(controlValues(:, 1) < generation.control.minimum_frequency_hz - 1) || ...
-            any(controlValues(:, 1) > generation.control.maximum_frequency_hz + 1)
+    if any(controlValues(:, 1) < generation.control.minimum_frequency_hz - tolerances.frequency_hz) || ...
+            any(controlValues(:, 1) > generation.control.maximum_frequency_hz + tolerances.frequency_hz)
         error('llc:InvalidOutput', 'Frequency command exceeded configured limits.');
     end
-    if abs(stateTimes(1)) > eps || any(abs(stateValues(1, :)) > 1e-8)
+    if abs(stateTimes(1)) > tolerances.timing_s || ...
+            any(abs(stateValues(1, :)) > tolerances.initial_state_abs)
         error('llc:InvalidOutput', 'Trajectory does not start from the requested zero state.');
     end
-    tolerance = max(1e-12, 32 * eps(simulationStopTime));
+    tolerance = max(tolerances.stop_time_abs_s, 32 * eps(simulationStopTime));
     if abs(stateTimes(end) - simulationStopTime) > tolerance
         error('llc:InvalidOutput', 'Trajectory does not reach the configured stop time.');
     end
@@ -212,8 +217,10 @@ function validateGeneration(config)
     requireText(config, 'output_directory');
     if ~isfield(config, 'solver') || ~isstruct(config.solver) || ...
             ~isfield(config, 'control') || ~isstruct(config.control) || ...
-            ~isfield(config, 'sampling') || ~isstruct(config.sampling)
-        error('llc:IncompleteConfig', 'solver, control and sampling must be JSON objects.');
+            ~isfield(config, 'sampling') || ~isstruct(config.sampling) || ...
+            ~isfield(config, 'validation_tolerances') || ~isstruct(config.validation_tolerances)
+        error('llc:IncompleteConfig', ...
+              'solver, control, sampling and validation_tolerances must be JSON objects.');
     end
     requireText(config.solver, 'name');
     if ~strcmp(config.solver.name, 'ode23t')
@@ -252,8 +259,13 @@ function validateGeneration(config)
         error('llc:InvalidConfig', 'Closed-loop timing or frequency limits are inconsistent.');
     end
     if ~isfield(config, 'initial_state') || ~isnumeric(config.initial_state) || ...
-            numel(config.initial_state) ~= 4 || any(~isfinite(config.initial_state))
-        error('llc:InvalidConfig', 'initial_state must contain four finite values.');
+            numel(config.initial_state) ~= 4 || any(~isfinite(config.initial_state)) || ...
+            any(config.initial_state ~= 0)
+        error('llc:InvalidConfig', 'initial_state must contain four zeros.');
+    end
+    toleranceFields = {'timing_s', 'frequency_hz', 'initial_state_abs', 'stop_time_abs_s'};
+    for index = 1:numel(toleranceFields)
+        requirePositiveScalar(config.validation_tolerances, toleranceFields{index});
     end
     validateSteadyStateAssessment(config, sampling);
     if ~isfield(config, 'conditions') || ~isstruct(config.conditions) || isempty(config.conditions)

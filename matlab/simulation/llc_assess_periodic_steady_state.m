@@ -4,12 +4,14 @@ function assessment = llc_assess_periodic_steady_state( ...
     validateInputs(stateTimes, stateValues, gateTimes, gateValues, referenceVoltage, config);
     stateReferenceScales = reshape(config.state_reference_scales, 1, []);
 
-    rising = [gateValues(1, 1) > 0; diff(double(gateValues(:, 1) > 0)) > 0];
-    cycleBoundaries = gateTimes(rising);
+    gateChanges = [true; any(diff(double(gateValues), 1, 1) ~= 0, 2)];
+    gateEventTimes = gateTimes(gateChanges);
+    gateEventValues = double(gateValues(gateChanges, :));
     checkpointTemplate = struct( ...
         'time_s', NaN, ...
         'window_start_s', NaN, ...
         'complete_cycle_count', 0, ...
+        'gate_cycles_valid', false, ...
         'regulated', false, ...
         'dynamics_stable', false, ...
         'settled', false, ...
@@ -23,9 +25,12 @@ function assessment = llc_assess_periodic_steady_state( ...
         windowStart = checkTime - config.window_duration_s;
         checkpoints(index).time_s = checkTime;
         checkpoints(index).window_start_s = windowStart;
-        [cycleStarts, cycleEnds] = completeCycles(cycleBoundaries, windowStart, checkTime);
+        [cycleStarts, cycleEnds, gateCyclesValid] = completeCycles( ...
+            gateEventTimes, gateEventValues, windowStart, checkTime, ...
+            config.switching_frequency_limits_hz);
         checkpoints(index).complete_cycle_count = numel(cycleStarts);
-        if isempty(cycleStarts)
+        checkpoints(index).gate_cycles_valid = gateCyclesValid;
+        if isempty(cycleStarts) || ~gateCyclesValid
             continue;
         end
 
@@ -77,25 +82,56 @@ function assessment = llc_assess_periodic_steady_state( ...
     assessment = struct( ...
         'checkpoints', checkpoints, ...
         'settled', settled, ...
-        'settled_by_2ms', checkpoints(1).settled, ...
+        'settled_at_first_checkpoint', checkpoints(1).settled, ...
         'first_settled_time_s', firstSettledTime, ...
         'selected_stop_time_s', checkpoints(selectedIndex).time_s, ...
         'regulated', checkpoints(selectedIndex).regulated, ...
         'dynamics_stable', checkpoints(selectedIndex).dynamics_stable);
 end
 
-function [starts, ends] = completeCycles(boundaries, windowStart, checkTime)
-    if numel(boundaries) < 2
+function [starts, ends, valid] = completeCycles( ...
+        eventTimes, eventValues, windowStart, checkTime, frequencyLimits)
+    positivePair = [1, 0, 0, 1];
+    negativePair = [0, 1, 1, 0];
+    offState = zeros(1, 4);
+    positiveEvents = find(all(eventValues == positivePair, 2));
+    if numel(positiveEvents) < 2
         starts = zeros(0, 1);
         ends = zeros(0, 1);
+        valid = false;
         return;
     end
-    starts = boundaries(1:end-1);
-    ends = boundaries(2:end);
+    candidateStarts = eventTimes(positiveEvents(1:end-1));
+    candidateEnds = eventTimes(positiveEvents(2:end));
     tolerance = 64 * eps(max(checkTime, 1));
-    complete = starts >= windowStart - tolerance & ends <= checkTime + tolerance;
-    starts = starts(complete);
-    ends = ends(complete);
+    complete = candidateStarts >= windowStart - tolerance & ...
+               candidateEnds <= checkTime + tolerance;
+    candidateIndices = find(complete);
+    starts = candidateStarts(complete);
+    ends = candidateEnds(complete);
+    if isempty(candidateIndices)
+        valid = false;
+        return;
+    end
+
+    expectedSequence = [positivePair; offState; negativePair; offState];
+    minimumPeriod = 1 / frequencyLimits(2);
+    maximumPeriod = 1 / frequencyLimits(1);
+    valid = true;
+    for index = 1:numel(candidateIndices)
+        candidate = candidateIndices(index);
+        firstEvent = positiveEvents(candidate);
+        nextPositiveEvent = positiveEvents(candidate + 1);
+        sequence = eventValues(firstEvent:nextPositiveEvent - 1, :);
+        duration = eventTimes(nextPositiveEvent) - eventTimes(firstEvent);
+        validSequence = isequal(sequence, expectedSequence);
+        validDuration = duration >= minimumPeriod - tolerance && ...
+                        duration <= maximumPeriod + tolerance;
+        if ~validSequence || ~validDuration
+            valid = false;
+            return;
+        end
+    end
 end
 
 function [means, ripples] = cycleStatistics(stateTimes, stateValues, starts, ends)
@@ -119,8 +155,8 @@ function validateInputs(stateTimes, stateValues, gateTimes, gateValues, referenc
     end
     if ~isvector(gateTimes) || numel(gateTimes) < 2 || any(~isfinite(gateTimes)) || ...
             any(diff(gateTimes) <= 0) || size(gateValues, 1) ~= numel(gateTimes) || ...
-            size(gateValues, 2) < 1 || any(gateValues ~= 0 & gateValues ~= 1, 'all')
-        error('llc:InvalidSteadyStateInput', 'Gate data must be a binary time series with increasing times.');
+            size(gateValues, 2) ~= 4 || any(gateValues ~= 0 & gateValues ~= 1, 'all')
+        error('llc:InvalidSteadyStateInput', 'Gate data must be a four-channel binary time series with increasing times.');
     end
     if ~isscalar(referenceVoltage) || ~isfinite(referenceVoltage) || referenceVoltage <= 0
         error('llc:InvalidSteadyStateInput', 'referenceVoltage must be a finite positive scalar.');
@@ -128,22 +164,26 @@ function validateInputs(stateTimes, stateValues, gateTimes, gateValues, referenc
     required = {'check_times_s', 'window_duration_s', 'output_relative_tolerance', ...
                 'state_reference_scales', 'state_mean_relative_tolerance', ...
                 'ripple_relative_tolerance', 'ripple_floor_relative_scale', ...
-                'minimum_cycles_per_half_window'};
+                'minimum_cycles_per_half_window', 'switching_frequency_limits_hz'};
     if ~isstruct(config) || ~all(isfield(config, required))
         error('llc:InvalidSteadyStateConfig', 'Steady-state assessment configuration is incomplete.');
     end
-    positiveVectors = {config.check_times_s, config.state_reference_scales};
+    positiveVectors = {config.check_times_s, config.state_reference_scales, ...
+                       config.switching_frequency_limits_hz};
     if any(cellfun(@(value) ~isnumeric(value) || isempty(value) || ...
             any(~isfinite(value)) || any(value <= 0), positiveVectors))
         error('llc:InvalidSteadyStateConfig', 'Check times and state scales must be finite and positive.');
     end
     if numel(config.state_reference_scales) ~= 4 || ...
+            numel(config.switching_frequency_limits_hz) ~= 2 || ...
+            config.switching_frequency_limits_hz(1) >= config.switching_frequency_limits_hz(2) || ...
             any(diff(config.check_times_s) <= 0) || ...
             config.check_times_s(end) > stateTimes(end) + 64 * eps(max(stateTimes(end), 1))
         error('llc:InvalidSteadyStateConfig', 'Steady-state checkpoints or state scales are inconsistent.');
     end
     scalarFields = required(2:end);
     scalarFields(strcmp(scalarFields, 'state_reference_scales')) = [];
+    scalarFields(strcmp(scalarFields, 'switching_frequency_limits_hz')) = [];
     for index = 1:numel(scalarFields)
         value = config.(scalarFields{index});
         if ~isnumeric(value) || ~isscalar(value) || ~isfinite(value) || value <= 0
