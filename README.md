@@ -18,5 +18,6 @@
 
 Python 最低版本为 3.11。requirements.txt 当前不声明依赖，实现功能时按需添加。
 pyproject.toml 仅保留打包元信息，不注册命令入口。
-当前无可运行功能或测试，未进行训练或仿真验证。
-.gitkeep 仅用于让 Git 保留空目录。
+MATLAB 目录已包含 LLC Simulink 模型和最小原始轨迹生成入口，使用方法见
+[`matlab/README.md`](matlab/README.md)。Python 训练功能仍未实现。
+.gitkeep 仅用于让 Git 保留其余空目录。

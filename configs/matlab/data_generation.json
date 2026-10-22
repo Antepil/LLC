@@ -1,0 +1,26 @@
+{
+  "schema_version": "llc-data-generation-v1",
+  "model_file": "matlab/models/llc_full_bridge.slx",
+  "output_directory": "data/raw/llc_constant_frequency",
+  "solver": {
+    "name": "ode23t",
+    "max_step_s": 1.0e-7,
+    "relative_tolerance": 1.0e-5,
+    "absolute_tolerance": 1.0e-7
+  },
+  "modulation": {
+    "deadtime_s": 2.0e-7,
+    "minimum_pulse_s": 5.0e-7,
+    "frequency_range_hz": [70000.0, 220000.0]
+  },
+  "initial_state": [0.0, 0.0, 0.0, 0.0],
+  "conditions": [
+    {
+      "trajectory_id": "vin400_r2p304_f110k",
+      "vin_v": 400.0,
+      "load_ohm": 2.304,
+      "switching_frequency_hz": 110000.0,
+      "stop_time_s": 1.0e-3
+    }
+  ]
+}

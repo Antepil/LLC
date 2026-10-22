@@ -1,0 +1,23 @@
+{
+  "schema_version": "llc-hardware-v1",
+  "hardware_id": "llc-400v-48v-1kw-candidate-01",
+  "status": "candidate_not_hardware_validated",
+  "topology": "full_bridge_llc_diode_rectifier",
+  "turns_ratio_np_ns": 8.0,
+  "resonant_inductance_h": 7.6e-5,
+  "resonant_capacitance_f": 3.3e-8,
+  "magnetizing_inductance_h": 3.8e-4,
+  "output_capacitance_f": 1.0e-3,
+  "resonant_winding_resistance_ohm": 0.1,
+  "magnetizing_series_resistance_ohm": 0.1,
+  "switch_on_resistance_ohm": 0.08,
+  "switch_off_conductance_s": 1.0e-8,
+  "body_diode_forward_v": 0.8,
+  "body_diode_on_resistance_ohm": 0.02,
+  "rectifier_forward_v": 0.6,
+  "rectifier_on_resistance_ohm": 0.005,
+  "diode_off_conductance_s": 1.0e-8,
+  "state_names": ["i_Lr", "v_Cr", "i_Lm", "v_o"],
+  "state_units": ["A", "V", "A", "V"],
+  "gate_names": ["Q1_A_high", "Q2_A_low", "Q3_B_high", "Q4_B_low"]
+}
