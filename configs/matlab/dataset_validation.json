@@ -1,0 +1,47 @@
+{
+  "schema_version": "llc-dataset-validation-v1",
+  "trajectory_directory": "data/raw/llc_closed_loop",
+  "file_pattern": "trajectory_*.mat",
+  "report_directory": "artifacts/data_validation",
+  "report_file_prefix": "llc_dataset_validation",
+  "accepted_trajectory_schema_versions": [
+    "llc-closed-loop-fixed-grid-trajectory-v2"
+  ],
+  "required_state_names": [
+    "i_Lr",
+    "v_Cr",
+    "i_Lm",
+    "v_o"
+  ],
+  "required_state_units": [
+    "A",
+    "V",
+    "A",
+    "V"
+  ],
+  "required_condition_fields": [
+    "vin_v",
+    "load_ohm",
+    "reference_voltage_v"
+  ],
+  "mutually_exclusive_gate_groups": [
+    [
+      "Q1_A_high",
+      "Q2_A_low"
+    ],
+    [
+      "Q3_B_high",
+      "Q4_B_low"
+    ]
+  ],
+  "optional_positive_control_names": [
+    "frequency_hz"
+  ],
+  "initial_state_abs_tolerance": 1e-8,
+  "time_abs_tolerance_s": 1e-12,
+  "fixed_grid_relative_tolerance": 1e-9,
+  "tail_window_s": 0.0004,
+  "output_state_name": "v_o",
+  "reference_condition_field": "reference_voltage_v",
+  "output_mean_relative_tolerance": 0.02
+}

@@ -60,3 +60,29 @@ setup_paths;
 
 生成器保留所有成功仿真且结构有效的轨迹，不用 `regulated` 或 `settled` 标签拒收数据。训练前应结合
 这些标签、状态和器件应力进行独立的数据质量检查；当前策略不构成实际硬件频率范围或 ZVS 安全认证。
+
+## 通用数据检查
+
+生成数据后可运行与调制策略无关的批量检查：
+
+```matlab
+addpath('matlab');
+setup_paths;
+[report, summary, stateMetrics, controlMetrics] = ...
+    llc_validate_generated_dataset();
+```
+
+入口默认读取 `configs/matlab/dataset_validation.json`，扫描配置中的轨迹目录，并把报告写到
+`artifacts/data_validation`。也可以把第一个参数指定为单个 MAT 文件、MAT 文件字符串数组或其他目录，
+第三个参数指定报告目录。
+
+检查分为两类。结构检查验证字段和变量顺序、时间轴、有限数值、零初态、固定网格对齐、二值门极、
+同一桥臂互锁以及原始数据覆盖范围；失败项通过稳定的问题代码记录。统计检查输出各状态的全程峰值和
+尾部范围、各控制量的范围及末值，并根据配置计算尾部输出均值、峰峰值和参考误差。输出误差超限只写入
+`output_tail_within_tolerance=false`，不会把结构有效的数据删除或判为损坏。
+
+通用检查不假定“正对角—死区—负对角—死区”等特定开关顺序，因此可以复用于 PFM、PWM 和移相数据。
+具体调制策略的周期完整性、死区长度、ZVS 及器件额定应力需要由独立检查器补充。
+
+报告包含四个文件：轨迹汇总 CSV、状态统计 CSV、控制量统计 CSV，以及保存完整配置和上述表格的 MAT
+文件。默认文件名前缀和检查阈值都在 `dataset_validation.json` 中配置。
