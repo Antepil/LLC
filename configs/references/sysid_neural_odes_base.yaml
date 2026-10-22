@@ -1,0 +1,212 @@
+# Reference configuration converted from SysID-Neural-ODEs BASE_CONFIGS.
+# Source: https://github.com/wolfundhenne/SysID-Neural-ODEs/blob/main/configurations/general/base.py
+# Four original presets; not an LLC training configuration.
+# Python None -> null; float('inf') -> .inf; 2**7 -> 128.
+
+ieee9_single_step_no_encoding:
+  data:
+    t_step: 0.01
+    outputs:
+    - $p_{m1}$
+    - $v_{1}$
+    - $\theta_{2,1}$
+    - $\omega_{2}$
+    - $v_{2}$
+    - $\theta_{3,1}$
+    - $\omega_{3}$
+    - $v_{3}$
+    controls:
+    - $p_{d1}$
+    - $p_{d2}$
+    - $p_{d3}$
+    outputs_as_latent_states:
+    - $p_{m1}$
+    - $v_{1}$
+    - $\theta_{2,1}$
+    - $\omega_{2}$
+    - $v_{2}$
+    - $\theta_{3,1}$
+    - $\omega_{3}$
+    - $v_{3}$
+    seq_len: 2
+    hist_seq_len: 1
+    overlap: 1
+  model:
+    dynamics:
+      type: fxu
+      stepper: rk4
+      latent_state_dim: 8
+      act_fct: silu
+      n_layers: 1
+      n_hidden: 64
+      dropout: 0.1
+    encoder:
+      type: identity
+      input_mode: sequence
+      input_sources: yu
+    decoder: null
+  train:
+    learning_rate: 0.001
+    n_epochs: 500
+    patience: 50
+    warmup: 10
+    grad_clip: .inf
+    batch_size: 128
+    shuffle: true
+    drop_last: false
+  meta:
+    config_id: noid
+ieee9_multi_step_no_encoding:
+  data:
+    t_step: 0.01
+    outputs:
+    - $p_{m1}$
+    - $v_{1}$
+    - $\theta_{2,1}$
+    - $\omega_{2}$
+    - $v_{2}$
+    - $\theta_{3,1}$
+    - $\omega_{3}$
+    - $v_{3}$
+    controls:
+    - $p_{d1}$
+    - $p_{d2}$
+    - $p_{d3}$
+    outputs_as_latent_states:
+    - $p_{m1}$
+    - $v_{1}$
+    - $\theta_{2,1}$
+    - $\omega_{2}$
+    - $v_{2}$
+    - $\theta_{3,1}$
+    - $\omega_{3}$
+    - $v_{3}$
+    seq_len: 32
+    hist_seq_len: 1
+    overlap: 16
+  model:
+    dynamics:
+      type: fxu
+      stepper: rk4
+      latent_state_dim: 8
+      act_fct: silu
+      n_layers: 1
+      n_hidden: 64
+      dropout: 0.1
+    encoder:
+      type: identity
+      input_mode: sequence
+      input_sources: yu
+    decoder: null
+  train:
+    learning_rate: 0.001
+    n_epochs: 500
+    patience: 50
+    warmup: 10
+    grad_clip: .inf
+    batch_size: 128
+    shuffle: true
+    drop_last: false
+  meta:
+    config_id: noid
+ieee9_multi_step_encoding:
+  data:
+    t_step: 0.01
+    outputs:
+    - $p_{m1}$
+    - $v_{1}$
+    - $\omega_{2}$
+    - $v_{2}$
+    - $\omega_{3}$
+    - $v_{3}$
+    controls:
+    - $p_{d1}$
+    - $p_{d2}$
+    - $p_{d3}$
+    outputs_as_latent_states:
+    - $p_{m1}$
+    - $v_{1}$
+    - $\omega_{2}$
+    - $v_{2}$
+    - $\omega_{3}$
+    - $v_{3}$
+    seq_len: 32
+    hist_seq_len: 32
+    overlap: 16
+  model:
+    dynamics:
+      type: fxu
+      stepper: rk4
+      latent_state_dim: 8
+      act_fct: silu
+      n_layers: 1
+      n_hidden: 64
+      dropout: 0.1
+    encoder:
+      type: lstm
+      n_layers: 1
+      n_hidden: 8
+      dropout: 0.1
+      input_mode: sequence
+      input_sources: yu
+    decoder: null
+  train:
+    learning_rate: 0.001
+    n_epochs: 500
+    patience: 50
+    warmup: 10
+    grad_clip: .inf
+    batch_size: 128
+    shuffle: true
+    drop_last: false
+  meta:
+    config_id: noid
+ieee9_multi_step_encoding_latentall:
+  data:
+    t_step: 0.01
+    outputs:
+    - $p_{m1}$
+    - $v_{1}$
+    - $\omega_{2}$
+    - $v_{2}$
+    - $\omega_{3}$
+    - $v_{3}$
+    controls:
+    - $p_{d1}$
+    - $p_{d2}$
+    - $p_{d3}$
+    outputs_as_latent_states: []
+    seq_len: 32
+    hist_seq_len: 32
+    overlap: 16
+  model:
+    dynamics:
+      type: fxu
+      stepper: rk4
+      latent_state_dim: 8
+      act_fct: silu
+      n_layers: 1
+      n_hidden: 64
+      dropout: 0.1
+    encoder:
+      type: lstm
+      n_layers: 1
+      n_hidden: 8
+      dropout: 0.1
+      input_mode: sequence
+      input_sources: yu
+    decoder:
+      n_layers: 1
+      n_hidden: 64
+      dropout: 0.1
+  train:
+    learning_rate: 0.001
+    n_epochs: 500
+    patience: 50
+    warmup: 10
+    grad_clip: .inf
+    batch_size: 128
+    shuffle: true
+    drop_last: false
+  meta:
+    config_id: noid
