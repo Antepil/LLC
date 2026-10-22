@@ -26,8 +26,7 @@ function assessment = llc_assess_periodic_steady_state( ...
         checkpoints(index).time_s = checkTime;
         checkpoints(index).window_start_s = windowStart;
         [cycleStarts, cycleEnds, gateCyclesValid] = completeCycles( ...
-            gateEventTimes, gateEventValues, windowStart, checkTime, ...
-            config.switching_frequency_limits_hz);
+            gateEventTimes, gateEventValues, windowStart, checkTime);
         checkpoints(index).complete_cycle_count = numel(cycleStarts);
         checkpoints(index).gate_cycles_valid = gateCyclesValid;
         if isempty(cycleStarts) || ~gateCyclesValid
@@ -90,7 +89,7 @@ function assessment = llc_assess_periodic_steady_state( ...
 end
 
 function [starts, ends, valid] = completeCycles( ...
-        eventTimes, eventValues, windowStart, checkTime, frequencyLimits)
+        eventTimes, eventValues, windowStart, checkTime)
     positivePair = [1, 0, 0, 1];
     negativePair = [0, 1, 1, 0];
     offState = zeros(1, 4);
@@ -115,8 +114,6 @@ function [starts, ends, valid] = completeCycles( ...
     end
 
     expectedSequence = [positivePair; offState; negativePair; offState];
-    minimumPeriod = 1 / frequencyLimits(2);
-    maximumPeriod = 1 / frequencyLimits(1);
     valid = true;
     for index = 1:numel(candidateIndices)
         candidate = candidateIndices(index);
@@ -125,8 +122,12 @@ function [starts, ends, valid] = completeCycles( ...
         sequence = eventValues(firstEvent:nextPositiveEvent - 1, :);
         duration = eventTimes(nextPositiveEvent) - eventTimes(firstEvent);
         validSequence = isequal(sequence, expectedSequence);
-        validDuration = duration >= minimumPeriod - tolerance && ...
-                        duration <= maximumPeriod + tolerance;
+        validDuration = isfinite(duration) && duration > 0;
+        if validSequence
+            widths = diff(eventTimes(firstEvent:nextPositiveEvent));
+            % Deadtime must not masquerade as a dropped switching cycle.
+            validDuration = validDuration && max(widths([2, 4])) < min(widths([1, 3]));
+        end
         if ~validSequence || ~validDuration
             valid = false;
             return;
@@ -164,26 +165,22 @@ function validateInputs(stateTimes, stateValues, gateTimes, gateValues, referenc
     required = {'check_times_s', 'window_duration_s', 'output_relative_tolerance', ...
                 'state_reference_scales', 'state_mean_relative_tolerance', ...
                 'ripple_relative_tolerance', 'ripple_floor_relative_scale', ...
-                'minimum_cycles_per_half_window', 'switching_frequency_limits_hz'};
+                'minimum_cycles_per_half_window'};
     if ~isstruct(config) || ~all(isfield(config, required))
         error('llc:InvalidSteadyStateConfig', 'Steady-state assessment configuration is incomplete.');
     end
-    positiveVectors = {config.check_times_s, config.state_reference_scales, ...
-                       config.switching_frequency_limits_hz};
+    positiveVectors = {config.check_times_s, config.state_reference_scales};
     if any(cellfun(@(value) ~isnumeric(value) || isempty(value) || ...
             any(~isfinite(value)) || any(value <= 0), positiveVectors))
         error('llc:InvalidSteadyStateConfig', 'Check times and state scales must be finite and positive.');
     end
     if numel(config.state_reference_scales) ~= 4 || ...
-            numel(config.switching_frequency_limits_hz) ~= 2 || ...
-            config.switching_frequency_limits_hz(1) >= config.switching_frequency_limits_hz(2) || ...
             any(diff(config.check_times_s) <= 0) || ...
             config.check_times_s(end) > stateTimes(end) + 64 * eps(max(stateTimes(end), 1))
         error('llc:InvalidSteadyStateConfig', 'Steady-state checkpoints or state scales are inconsistent.');
     end
     scalarFields = required(2:end);
     scalarFields(strcmp(scalarFields, 'state_reference_scales')) = [];
-    scalarFields(strcmp(scalarFields, 'switching_frequency_limits_hz')) = [];
     for index = 1:numel(scalarFields)
         value = config.(scalarFields{index});
         if ~isnumeric(value) || ~isscalar(value) || ~isfinite(value) || value <= 0

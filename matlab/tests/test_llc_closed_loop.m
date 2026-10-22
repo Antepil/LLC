@@ -13,8 +13,9 @@ function testClosedLoopConfiguration(testCase)
     config = llc_read_json(fullfile(root, 'configs', 'matlab', 'closed_loop_data_generation.json'));
     control = config.control;
     verifyEqual(testCase, config.schema_version, 'llc-closed-loop-data-generation-v3');
-    verifyGreaterThan(testCase, control.maximum_frequency_hz, control.minimum_frequency_hz);
-    verifyGreaterThan(testCase, 0.5 / control.maximum_frequency_hz, ...
+    verifyFalse(testCase, isfield(control, 'minimum_frequency_hz'));
+    verifyFalse(testCase, isfield(control, 'maximum_frequency_hz'));
+    verifyGreaterThan(testCase, 0.5 / control.initial_frequency_hz, ...
                       control.deadtime_s + control.minimum_pulse_s);
     verifyEqual(testCase, numel(config.conditions), 27);
     combinations = [[config.conditions.vin_v].', ...
@@ -36,7 +37,6 @@ function testClosedLoopConfiguration(testCase)
     verifyEqual(testCase, assessment.ripple_floor_relative_scale, 0.01);
     validation = config.validation_tolerances;
     verifyEqual(testCase, validation.timing_s, 1e-12);
-    verifyEqual(testCase, validation.frequency_hz, 1);
     verifyEqual(testCase, validation.initial_state_abs, 1e-8);
     verifyEqual(testCase, validation.stop_time_abs_s, 1e-12);
     expectedSamples = assessment.check_times_s * config.sampling.reference_frequency_hz * ...

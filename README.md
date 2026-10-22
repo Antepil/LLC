@@ -21,3 +21,17 @@ pyproject.toml 仅保留打包元信息，不注册命令入口。
 MATLAB 目录已包含 LLC Simulink 模型、开环原始轨迹入口和闭环 PFM 数据生成入口，使用方法见
 [`matlab/README.md`](matlab/README.md)。Python 训练功能仍未实现。
 .gitkeep 仅用于让 Git 保留其余空目录。
+
+### Closed-loop frequency policy
+
+The closed-loop PI has no configured minimum/maximum frequency and no saturation
+anti-windup. The configured frequency slew rate, deadtime and minimum pulse remain.
+Nonpositive/nonfinite applied frequencies or impossible switching timing fail the
+condition explicitly; commands are never silently clipped to a replacement bound.
+Obsolete `minimum_frequency_hz` / `maximum_frequency_hz` configuration fields are rejected.
+Steady-state cycle recognition uses actual bridge transitions, not an assumed frequency band.
+A deadtime interval as long as an active interval is marked invalid for steady-state
+assessment (including missing-cycle gaps); this does not discard the trajectory.
+All successfully simulated, structurally valid trajectories are retained, including
+unregulated or unsettled cases. Assessment still starts at 2 ms and ends at 2.5 ms;
+raw logs retain the full run. This policy does not certify hardware ratings or ZVS.

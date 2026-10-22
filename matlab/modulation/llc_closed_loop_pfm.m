@@ -124,17 +124,16 @@ function update(block)
         integral = getState(block, 'integral_v_s');
         candidateIntegral = integral + control.control_period_s * errorVoltage;
         desiredFrequency = piFrequency(control, errorVoltage, candidateIntegral);
-        pushingLow = desiredFrequency < control.minimum_frequency_hz && errorVoltage > 0;
-        pushingHigh = desiredFrequency > control.maximum_frequency_hz && errorVoltage < 0;
-        if pushingLow || pushingHigh
-            desiredFrequency = piFrequency(control, errorVoltage, integral);
-        else
-            integral = candidateIntegral;
-        end
-        desiredFrequency = min(max(desiredFrequency, control.minimum_frequency_hz), ...
-                               control.maximum_frequency_hz);
+        integral = candidateIntegral;
         maximumChange = control.frequency_slew_rate_hz_per_s * control.control_period_s;
         frequency = frequency + min(max(desiredFrequency - frequency, -maximumChange), maximumChange);
+        if ~isfinite(frequency) || frequency <= 0
+            error('llc:InvalidFrequency', 'PFM requires a finite positive frequency; got %g Hz.', frequency);
+        end
+        if 0.5 / frequency <= control.deadtime_s + control.minimum_pulse_s
+            error('llc:InvalidSwitchingTiming', ...
+                  'Frequency %g Hz cannot accommodate configured deadtime and minimum pulse.', frequency);
+        end
         setState(block, 'filtered_voltage_v', filteredVoltage);
         setState(block, 'reference_voltage_v', reference);
         setState(block, 'error_v', errorVoltage);

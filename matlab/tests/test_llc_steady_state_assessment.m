@@ -97,6 +97,17 @@ function testUnregulatedTrajectoryIsRetainedThroughFinalCheckpoint(testCase)
     verifyEqual(testCase, numel(result.checkpoints), 6);
 end
 
+function testCyclesOutsideFormerFrequencyBoundsAreAccepted(testCase)
+    for frequency = [70e3, 250e3]
+        [times, ~, ~, ~] = periodicFixture(48, 0);
+        states = repmat([0, 200, 0, 48], numel(times), 1);
+        [gateTimes, gates] = gateEventFixture(1 / frequency, times(end), 0);
+        result = llc_assess_periodic_steady_state( ...
+            times, states, gateTimes, gates, 48, testCase.TestData.config);
+        verifyTrue(testCase, result.settled_at_first_checkpoint);
+    end
+end
+
 function config = assessmentConfig
     config = struct;
     config.check_times_s = (2.0e-3:0.1e-3:2.5e-3).';
@@ -107,7 +118,6 @@ function config = assessmentConfig
     config.ripple_relative_tolerance = 0.05;
     config.ripple_floor_relative_scale = 0.01;
     config.minimum_cycles_per_half_window = 2;
-    config.switching_frequency_limits_hz = [90e3, 110e3];
 end
 
 function [times, states, gateTimes, gates] = periodicFixture(outputMean, currentDrift, gatePhaseShift)
