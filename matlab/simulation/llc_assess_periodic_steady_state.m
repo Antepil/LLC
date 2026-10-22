@@ -2,6 +2,7 @@ function assessment = llc_assess_periodic_steady_state( ...
         stateTimes, stateValues, gateTimes, gateValues, referenceVoltage, config)
     % LLC_ASSESS_PERIODIC_STEADY_STATE Classify periodic steady state at checkpoints.
     validateInputs(stateTimes, stateValues, gateTimes, gateValues, referenceVoltage, config);
+    stateReferenceScales = reshape(config.state_reference_scales, 1, []);
 
     rising = [gateValues(1, 1) > 0; diff(double(gateValues(:, 1) > 0)) > 0];
     cycleBoundaries = gateTimes(rising);
@@ -44,13 +45,13 @@ function assessment = llc_assess_periodic_steady_state( ...
         outputError = abs(cycleMeans(:, 4) - referenceVoltage) / referenceVoltage;
         regulated = all(outputError <= config.output_relative_tolerance);
 
-        meanLimit = config.state_mean_relative_tolerance .* config.state_reference_scales;
+        meanLimit = config.state_mean_relative_tolerance .* stateReferenceScales;
         meanHalfChange = abs(mean(cycleMeans(firstHalf, :), 1) - ...
                              mean(cycleMeans(secondHalf, :), 1));
         meanRange = max(cycleMeans, [], 1) - min(cycleMeans, [], 1);
         meansStable = all(meanHalfChange <= meanLimit & meanRange <= meanLimit);
 
-        rippleFloor = config.ripple_floor_relative_scale .* config.state_reference_scales;
+        rippleFloor = config.ripple_floor_relative_scale .* stateReferenceScales;
         rippleLimit = config.ripple_relative_tolerance .* ...
                       max(mean(cycleRipples, 1), rippleFloor);
         rippleHalfChange = abs(mean(cycleRipples(firstHalf, :), 1) - ...

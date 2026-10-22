@@ -115,8 +115,8 @@ function [files, summary] = generate_llc_closed_loop_dataset(hardwareConfigFile,
         catch exception
             entries(index).error_identifier = exception.identifier;
             entries(index).error_message = exception.message;
-            warning('llc:ConditionFailed', 'Condition %s failed (%s): %s', ...
-                    condition.trajectory_id, exception.identifier, exception.message);
+            warning('llc:ConditionFailed', 'Condition %s failed:\n%s', ...
+                    condition.trajectory_id, getReport(exception, 'extended', 'hyperlinks', 'off'));
         end
     end
     summary = struct('entries', entries, ...
