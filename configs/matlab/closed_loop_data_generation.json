@@ -1,43 +1,224 @@
 {
-  "schema_version": "llc-closed-loop-data-generation-v2",
+  "schema_version": "llc-closed-loop-data-generation-v3",
   "model_file": "matlab/models/llc_full_bridge_closed_loop.slx",
   "output_directory": "data/raw/llc_closed_loop",
   "solver": {
     "name": "ode23t",
-    "max_step_s": 1.0e-7,
-    "relative_tolerance": 1.0e-5,
-    "absolute_tolerance": 1.0e-7
+    "max_step_s": 1e-7,
+    "relative_tolerance": 0.00001,
+    "absolute_tolerance": 1e-7
   },
   "sampling": {
     "method": "uniform_reference_cycle_v1",
-    "reference_frequency_hz": 110000.0,
+    "reference_frequency_hz": 110000,
     "intervals_per_cycle": 100,
     "state_interpolation": "linear",
     "interval_signal_sampling": "midpoint_previous"
   },
   "control": {
-    "control_period_s": 1.0e-5,
-    "voltage_filter_time_constant_s": 5.0e-5,
-    "reference_ramp_time_s": 1.0e-3,
-    "initial_frequency_hz": 180000.0,
-    "bias_frequency_hz": 110000.0,
-    "minimum_frequency_hz": 100000.0,
-    "maximum_frequency_hz": 220000.0,
-    "frequency_slew_rate_hz_per_s": 1.0e8,
-    "proportional_gain_hz_per_v": 1000.0,
-    "integral_gain_hz_per_v_s": 5.0e6,
-    "deadtime_s": 2.0e-7,
-    "minimum_pulse_s": 5.0e-7
+    "control_period_s": 0.00001,
+    "voltage_filter_time_constant_s": 0.00005,
+    "reference_ramp_time_s": 0.001,
+    "initial_frequency_hz": 180000,
+    "bias_frequency_hz": 110000,
+    "minimum_frequency_hz": 100000,
+    "maximum_frequency_hz": 220000,
+    "frequency_slew_rate_hz_per_s": 100000000,
+    "proportional_gain_hz_per_v": 1000,
+    "integral_gain_hz_per_v_s": 5000000,
+    "deadtime_s": 2e-7,
+    "minimum_pulse_s": 5e-7
   },
-  "initial_state": [0.0, 0.0, 0.0, 0.0],
-  "steady_state_relative_tolerance": 0.02,
+  "initial_state": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "steady_state_assessment": {
+    "check_times_s": [
+      0.002,
+      0.0021,
+      0.0022,
+      0.0023,
+      0.0024,
+      0.0025
+    ],
+    "window_duration_s": 0.0004,
+    "output_relative_tolerance": 0.02,
+    "state_reference_scales": [
+      10,
+      400,
+      10,
+      48
+    ],
+    "state_mean_relative_tolerance": 0.01,
+    "ripple_relative_tolerance": 0.05,
+    "ripple_floor_relative_scale": 0.01,
+    "minimum_cycles_per_half_window": 2
+  },
   "conditions": [
     {
-      "trajectory_id": "closed_loop_vin400_r2p304_vref48",
-      "vin_v": 400.0,
+      "trajectory_id": "closed_loop_vin360_r1p8432_vref43p2",
+      "vin_v": 360,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_vin360_r1p8432_vref48",
+      "vin_v": 360,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 48
+    },
+    {
+      "trajectory_id": "closed_loop_vin360_r1p8432_vref52p8",
+      "vin_v": 360,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_vin360_r2p304_vref43p2",
+      "vin_v": 360,
       "load_ohm": 2.304,
-      "reference_voltage_v": 48.0,
-      "stop_time_s": 2.0e-3
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_vin360_r2p304_vref48",
+      "vin_v": 360,
+      "load_ohm": 2.304,
+      "reference_voltage_v": 48
+    },
+    {
+      "trajectory_id": "closed_loop_vin360_r2p304_vref52p8",
+      "vin_v": 360,
+      "load_ohm": 2.304,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_vin360_r2p7648_vref43p2",
+      "vin_v": 360,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_vin360_r2p7648_vref48",
+      "vin_v": 360,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 48
+    },
+    {
+      "trajectory_id": "closed_loop_vin360_r2p7648_vref52p8",
+      "vin_v": 360,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_vin400_r1p8432_vref43p2",
+      "vin_v": 400,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_vin400_r1p8432_vref48",
+      "vin_v": 400,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 48
+    },
+    {
+      "trajectory_id": "closed_loop_vin400_r1p8432_vref52p8",
+      "vin_v": 400,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_vin400_r2p304_vref43p2",
+      "vin_v": 400,
+      "load_ohm": 2.304,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_vin400_r2p304_vref48",
+      "vin_v": 400,
+      "load_ohm": 2.304,
+      "reference_voltage_v": 48
+    },
+    {
+      "trajectory_id": "closed_loop_vin400_r2p304_vref52p8",
+      "vin_v": 400,
+      "load_ohm": 2.304,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_vin400_r2p7648_vref43p2",
+      "vin_v": 400,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_vin400_r2p7648_vref48",
+      "vin_v": 400,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 48
+    },
+    {
+      "trajectory_id": "closed_loop_vin400_r2p7648_vref52p8",
+      "vin_v": 400,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_vin440_r1p8432_vref43p2",
+      "vin_v": 440,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_vin440_r1p8432_vref48",
+      "vin_v": 440,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 48
+    },
+    {
+      "trajectory_id": "closed_loop_vin440_r1p8432_vref52p8",
+      "vin_v": 440,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_vin440_r2p304_vref43p2",
+      "vin_v": 440,
+      "load_ohm": 2.304,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_vin440_r2p304_vref48",
+      "vin_v": 440,
+      "load_ohm": 2.304,
+      "reference_voltage_v": 48
+    },
+    {
+      "trajectory_id": "closed_loop_vin440_r2p304_vref52p8",
+      "vin_v": 440,
+      "load_ohm": 2.304,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_vin440_r2p7648_vref43p2",
+      "vin_v": 440,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_vin440_r2p7648_vref48",
+      "vin_v": 440,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 48
+    },
+    {
+      "trajectory_id": "closed_loop_vin440_r2p7648_vref52p8",
+      "vin_v": 440,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 52.8
     }
   ]
 }

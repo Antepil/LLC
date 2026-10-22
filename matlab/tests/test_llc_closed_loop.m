@@ -12,16 +12,32 @@ function testClosedLoopConfiguration(testCase)
     root = testCase.TestData.projectRoot;
     config = llc_read_json(fullfile(root, 'configs', 'matlab', 'closed_loop_data_generation.json'));
     control = config.control;
-    verifyEqual(testCase, config.schema_version, 'llc-closed-loop-data-generation-v2');
+    verifyEqual(testCase, config.schema_version, 'llc-closed-loop-data-generation-v3');
     verifyGreaterThan(testCase, control.maximum_frequency_hz, control.minimum_frequency_hz);
     verifyGreaterThan(testCase, 0.5 / control.maximum_frequency_hz, ...
                       control.deadtime_s + control.minimum_pulse_s);
-    verifyEqual(testCase, config.conditions.reference_voltage_v, 48);
-    verifyEqual(testCase, config.conditions.stop_time_s, 2e-3);
+    verifyEqual(testCase, numel(config.conditions), 27);
+    combinations = [[config.conditions.vin_v].', ...
+                    [config.conditions.load_ohm].', ...
+                    [config.conditions.reference_voltage_v].'];
+    verifyEqual(testCase, unique(combinations(:, 1)).', [360, 400, 440]);
+    verifyEqual(testCase, unique(combinations(:, 2)).', [1.8432, 2.304, 2.7648], 'AbsTol', 1e-12);
+    verifyEqual(testCase, unique(combinations(:, 3)).', [43.2, 48, 52.8], 'AbsTol', 1e-12);
+    verifyEqual(testCase, size(unique(combinations, 'rows'), 1), 27);
+    verifyEqual(testCase, config.initial_state(:).', [0, 0, 0, 0]);
     verifyEqual(testCase, config.sampling.intervals_per_cycle, 100);
-    expectedSamples = config.conditions.stop_time_s * config.sampling.reference_frequency_hz * ...
+    assessment = config.steady_state_assessment;
+    verifyEqual(testCase, assessment.check_times_s.', 2e-3:0.1e-3:2.5e-3, 'AbsTol', 1e-14);
+    verifyEqual(testCase, assessment.window_duration_s, 0.4e-3);
+    verifyEqual(testCase, assessment.output_relative_tolerance, 0.02);
+    verifyEqual(testCase, assessment.state_reference_scales(:).', [10, 400, 10, 48]);
+    verifyEqual(testCase, assessment.state_mean_relative_tolerance, 0.01);
+    verifyEqual(testCase, assessment.ripple_relative_tolerance, 0.05);
+    verifyEqual(testCase, assessment.ripple_floor_relative_scale, 0.01);
+    expectedSamples = assessment.check_times_s * config.sampling.reference_frequency_hz * ...
                       config.sampling.intervals_per_cycle + 1;
-    verifyEqual(testCase, expectedSamples, 22001);
+    verifyEqual(testCase, expectedSamples, [22001; 23101; 24201; 25301; 26401; 27501], ...
+                'AbsTol', 1e-9);
 end
 
 function testFixedGridInterpolation(testCase)

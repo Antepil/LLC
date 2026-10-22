@@ -1,4 +1,4 @@
-function files = generate_llc_closed_loop_dataset(hardwareConfigFile, generationConfigFile)
+function [files, summary] = generate_llc_closed_loop_dataset(hardwareConfigFile, generationConfigFile)
     % GENERATE_LLC_CLOSED_LOOP_DATASET Simulate voltage-feedback PFM trajectories.
     matlabRoot = fileparts(fileparts(mfilename('fullpath')));
     projectRoot = fileparts(matlabRoot);
@@ -28,75 +28,100 @@ function files = generate_llc_closed_loop_dataset(hardwareConfigFile, generation
     closeModel = onCleanup(@()close_system(modelName, 0));
     workspace = get_param(modelName, 'ModelWorkspace');
     files = strings(numel(generation.conditions), 1);
+    entryTemplate = struct('trajectory_id', '', 'success', false, 'output_file', '', ...
+                           'error_identifier', '', 'error_message', '', 'steady_state', []);
+    entries = repmat(entryTemplate, numel(generation.conditions), 1);
+    simulationStopTime = generation.steady_state_assessment.check_times_s(end);
 
     for index = 1:numel(generation.conditions)
         condition = generation.conditions(index);
-        validateCondition(condition);
-        parameters = hardware;
-        parameters.vin_v = condition.vin_v;
-        parameters.load_ohm = condition.load_ohm;
-        control = generation.control;
-        control.reference_voltage_v = condition.reference_voltage_v;
-        override = struct('parameters', parameters, 'control', control, ...
-                          'solver', generation.solver, 'stop_time_s', condition.stop_time_s);
-        assignin(workspace, 'llc_run_override', override);
+        entries(index).trajectory_id = condition.trajectory_id;
+        try
+            parameters = hardware;
+            parameters.vin_v = condition.vin_v;
+            parameters.load_ohm = condition.load_ohm;
+            control = generation.control;
+            control.reference_voltage_v = condition.reference_voltage_v;
+            override = struct('parameters', parameters, 'control', control, ...
+                              'solver', generation.solver, 'stop_time_s', simulationStopTime);
+            assignin(workspace, 'llc_run_override', override);
 
-        simulation = Simulink.SimulationInput(modelName);
-        loggedBlocks = {'States', 'Gates', 'Control'};
-        for blockIndex = 1:numel(loggedBlocks)
-            block = [modelName '/' loggedBlocks{blockIndex}];
-            simulation = simulation.setBlockParameter(block, 'Decimation', '1');
-            simulation = simulation.setBlockParameter(block, 'MaxDataPoints', 'inf');
-        end
-        simulation = applyInitialState(simulation, modelName, generation.initial_state);
-        result = sim(simulation);
-        stateTimes = result.llc_states.Time;
-        stateValues = result.llc_states.Data;
-        gateTimes = result.llc_gates.Time;
-        gateValues = result.llc_gates.Data;
-        controlTimes = result.llc_control_log.Time;
-        controlValues = result.llc_control_log.Data;
-        report = validateResult(stateTimes, stateValues, gateTimes, gateValues, ...
-                                controlTimes, controlValues, hardware, generation, condition);
-        raw = struct('state_times_s', stateTimes, 'state_values', stateValues, ...
-                     'gate_times_s', gateTimes, 'gate_values', gateValues, ...
-                     'control_times_s', controlTimes, 'control_values', controlValues);
-        [fixed, samplingAudit] = llc_resample_fixed_grid(raw, generation.sampling, condition.stop_time_s);
+            simulation = Simulink.SimulationInput(modelName);
+            loggedBlocks = {'States', 'Gates', 'Control'};
+            for blockIndex = 1:numel(loggedBlocks)
+                block = [modelName '/' loggedBlocks{blockIndex}];
+                simulation = simulation.setBlockParameter(block, 'Decimation', '1');
+                simulation = simulation.setBlockParameter(block, 'MaxDataPoints', 'inf');
+            end
+            simulation = applyInitialState(simulation, modelName, generation.initial_state);
+            result = sim(simulation);
+            stateTimes = result.llc_states.Time;
+            stateValues = result.llc_states.Data;
+            gateTimes = result.llc_gates.Time;
+            gateValues = result.llc_gates.Data;
+            controlTimes = result.llc_control_log.Time;
+            controlValues = result.llc_control_log.Data;
+            signalReport = validateResult(stateTimes, stateValues, gateTimes, gateValues, ...
+                                          controlTimes, controlValues, hardware, generation, ...
+                                          simulationStopTime);
+            steadyState = llc_assess_periodic_steady_state( ...
+                stateTimes, stateValues, gateTimes, gateValues, ...
+                condition.reference_voltage_v, generation.steady_state_assessment);
+            raw = struct('state_times_s', stateTimes, 'state_values', stateValues, ...
+                         'gate_times_s', gateTimes, 'gate_values', gateValues, ...
+                         'control_times_s', controlTimes, 'control_values', controlValues);
+            [fixed, samplingAudit] = llc_resample_fixed_grid( ...
+                raw, generation.sampling, steadyState.selected_stop_time_s);
 
-        trajectory = struct;
-        trajectory.schema_version = 'llc-closed-loop-fixed-grid-trajectory-v1';
-        trajectory.trajectory_id = condition.trajectory_id;
-        trajectory.state_names = cellstr(hardware.state_names);
-        trajectory.state_units = cellstr(hardware.state_units);
-        trajectory.state_times_s = fixed.state_times_s;
-        trajectory.state_values = fixed.state_values;
-        trajectory.gate_names = cellstr(hardware.gate_names);
-        trajectory.control_names = {'frequency_hz', 'filtered_voltage_v', ...
-                                    'reference_voltage_v', 'error_v', 'integral_v_s'};
-        trajectory.control_units = {'Hz', 'V', 'V', 'V', 'V*s'};
-        trajectory.interval_times_s = fixed.interval_times_s;
-        trajectory.interval_gate_values = fixed.interval_gate_values;
-        trajectory.interval_control_values = fixed.interval_control_values;
-        trajectory.raw_state_times_s = stateTimes;
-        trajectory.raw_state_values = stateValues;
-        trajectory.raw_gate_times_s = gateTimes;
-        trajectory.raw_gate_values = uint8(gateValues);
-        trajectory.raw_control_times_s = controlTimes;
-        trajectory.raw_control_values = controlValues;
-        trajectory.condition = condition;
-        trajectory.validation_report = report;
-        trajectory.sampling_audit = samplingAudit;
-        trajectory.effective_config = struct('hardware', hardware, 'generation', generation, ...
-                                             'condition', condition);
-        trajectory.source_model = generation.model_file;
-        trajectory.matlab_version = version;
-        outputFile = fullfile(outputDirectory, sprintf('trajectory_%04d_%s.mat', index, condition.trajectory_id));
-        if isfile(outputFile)
-            error('llc:OutputExists', 'Refusing to overwrite an existing trajectory: %s', outputFile);
+            trajectory = struct;
+            trajectory.schema_version = 'llc-closed-loop-fixed-grid-trajectory-v2';
+            trajectory.trajectory_id = condition.trajectory_id;
+            trajectory.state_names = cellstr(hardware.state_names);
+            trajectory.state_units = cellstr(hardware.state_units);
+            trajectory.state_times_s = fixed.state_times_s;
+            trajectory.state_values = fixed.state_values;
+            trajectory.gate_names = cellstr(hardware.gate_names);
+            trajectory.control_names = {'frequency_hz', 'filtered_voltage_v', ...
+                                        'reference_voltage_v', 'error_v', 'integral_v_s'};
+            trajectory.control_units = {'Hz', 'V', 'V', 'V', 'V*s'};
+            trajectory.interval_times_s = fixed.interval_times_s;
+            trajectory.interval_gate_values = fixed.interval_gate_values;
+            trajectory.interval_control_values = fixed.interval_control_values;
+            trajectory.raw_state_times_s = stateTimes;
+            trajectory.raw_state_values = stateValues;
+            trajectory.raw_gate_times_s = gateTimes;
+            trajectory.raw_gate_values = uint8(gateValues);
+            trajectory.raw_control_times_s = controlTimes;
+            trajectory.raw_control_values = controlValues;
+            trajectory.raw_simulation_stop_time_s = simulationStopTime;
+            trajectory.condition = condition;
+            trajectory.validation_report = struct('signal_integrity', signalReport, ...
+                                                  'steady_state', steadyState);
+            trajectory.sampling_audit = samplingAudit;
+            trajectory.effective_config = struct('hardware', hardware, 'generation', generation, ...
+                                                 'condition', condition);
+            trajectory.source_model = generation.model_file;
+            trajectory.matlab_version = version;
+            outputFile = fullfile(outputDirectory, ...
+                sprintf('trajectory_%04d_%s.mat', index, condition.trajectory_id));
+            if isfile(outputFile)
+                error('llc:OutputExists', 'Refusing to overwrite an existing trajectory: %s', outputFile);
+            end
+            save(outputFile, '-struct', 'trajectory', '-v7');
+            files(index) = string(outputFile);
+            entries(index).success = true;
+            entries(index).output_file = outputFile;
+            entries(index).steady_state = steadyState;
+        catch exception
+            entries(index).error_identifier = exception.identifier;
+            entries(index).error_message = exception.message;
+            warning('llc:ConditionFailed', 'Condition %s failed (%s): %s', ...
+                    condition.trajectory_id, exception.identifier, exception.message);
         end
-        save(outputFile, '-struct', 'trajectory', '-v7');
-        files(index) = string(outputFile);
     end
+    summary = struct('entries', entries, ...
+                     'successful_count', nnz([entries.success]), ...
+                     'failed_count', nnz(~[entries.success]));
     clear closeModel;
 end
 
@@ -112,7 +137,7 @@ function simulation = applyInitialState(simulation, modelName, initialState)
 end
 
 function report = validateResult(stateTimes, stateValues, gateTimes, gateValues, ...
-                                 controlTimes, controlValues, hardware, generation, condition)
+                                 controlTimes, controlValues, hardware, generation, simulationStopTime)
     requireTimeSeries(stateTimes, stateValues, numel(hardware.state_names), 'state');
     requireTimeSeries(gateTimes, gateValues, numel(hardware.gate_names), 'gate');
     requireTimeSeries(controlTimes, controlValues, 5, 'control');
@@ -144,40 +169,14 @@ function report = validateResult(stateTimes, stateValues, gateTimes, gateValues,
     if abs(stateTimes(1)) > eps || any(abs(stateValues(1, :)) > 1e-8)
         error('llc:InvalidOutput', 'Trajectory does not start from the requested zero state.');
     end
-    tolerance = max(1e-12, 32 * eps(condition.stop_time_s));
-    if abs(stateTimes(end) - condition.stop_time_s) > tolerance
+    tolerance = max(1e-12, 32 * eps(simulationStopTime));
+    if abs(stateTimes(end) - simulationStopTime) > tolerance
         error('llc:InvalidOutput', 'Trajectory does not reach the configured stop time.');
     end
-    tailStart = max(condition.stop_time_s - 200 / mean(controlValues(end-100:end, 1)), ...
-                    0.8 * condition.stop_time_s);
-    tail = stateTimes >= tailStart;
-    steadyVoltage = trapz(stateTimes(tail), stateValues(tail, 4)) / ...
-                    (stateTimes(find(tail, 1, 'last')) - stateTimes(find(tail, 1, 'first')));
-    relativeError = abs(steadyVoltage - condition.reference_voltage_v) / condition.reference_voltage_v;
-    if relativeError > generation.steady_state_relative_tolerance
-        error('llc:ClosedLoopNotRegulated', ...
-              'Final mean output %.6g V differs from %.6g V reference by %.3f%%.', ...
-              steadyVoltage, condition.reference_voltage_v, 100 * relativeError);
-    end
-    afterRamp = stateTimes >= generation.control.reference_ramp_time_s;
-    outsideBand = afterRamp & abs(stateValues(:, 4) - condition.reference_voltage_v) > ...
-                  generation.steady_state_relative_tolerance * condition.reference_voltage_v;
-    lastOutside = find(outsideBand, 1, 'last');
-    if isempty(lastOutside)
-        settlingTime = generation.control.reference_ramp_time_s;
-    elseif lastOutside < numel(stateTimes)
-        settlingTime = stateTimes(lastOutside + 1);
-    else
-        settlingTime = NaN;
-    end
-    report = struct('final_mean_output_voltage_v', steadyVoltage, ...
-                    'final_relative_error', relativeError, ...
-                    'final_frequency_hz', mean(controlValues(controlTimes >= tailStart, 1)), ...
-                    'settling_time_s', settlingTime, ...
+    report = struct('simulation_stop_time_s', simulationStopTime, ...
                     'peak_output_voltage_v', max(stateValues(:, 4)), ...
                     'minimum_deadtime_s', min(gateWidths(offIntervals)), ...
-                    'minimum_active_pulse_s', min(gateWidths(activeIntervals)), ...
-                    'regulated', true);
+                    'minimum_active_pulse_s', min(gateWidths(activeIntervals)));
 end
 
 function requireTimeSeries(times, values, width, name)
@@ -206,7 +205,7 @@ function validateHardware(config)
 end
 
 function validateGeneration(config)
-    if ~isfield(config, 'schema_version') || ~strcmp(config.schema_version, 'llc-closed-loop-data-generation-v2')
+    if ~isfield(config, 'schema_version') || ~strcmp(config.schema_version, 'llc-closed-loop-data-generation-v3')
         error('llc:InvalidConfig', 'Unsupported closed-loop data-generation schema_version.');
     end
     requireText(config, 'model_file');
@@ -256,23 +255,13 @@ function validateGeneration(config)
             numel(config.initial_state) ~= 4 || any(~isfinite(config.initial_state))
         error('llc:InvalidConfig', 'initial_state must contain four finite values.');
     end
-    requirePositiveScalar(config, 'steady_state_relative_tolerance');
-    if config.steady_state_relative_tolerance >= 1
-        error('llc:InvalidConfig', 'steady_state_relative_tolerance must be smaller than one.');
-    end
+    validateSteadyStateAssessment(config, sampling);
     if ~isfield(config, 'conditions') || ~isstruct(config.conditions) || isempty(config.conditions)
         error('llc:IncompleteConfig', 'conditions must contain at least one trajectory object.');
     end
     identifiers = strings(numel(config.conditions), 1);
     for index = 1:numel(config.conditions)
         validateCondition(config.conditions(index));
-        intervalCount = config.conditions(index).stop_time_s * ...
-                        sampling.reference_frequency_hz * sampling.intervals_per_cycle;
-        if abs(intervalCount - round(intervalCount)) > 64 * eps(max(intervalCount, 1))
-            error('llc:SamplingAlignment', ...
-                  'Condition %s does not end on the configured fixed grid.', ...
-                  config.conditions(index).trajectory_id);
-        end
         identifiers(index) = string(config.conditions(index).trajectory_id);
     end
     if numel(unique(identifiers)) ~= numel(identifiers)
@@ -285,8 +274,53 @@ function validateCondition(condition)
     if isempty(regexp(condition.trajectory_id, '^[A-Za-z0-9][A-Za-z0-9_-]*$', 'once'))
         error('llc:InvalidCondition', 'trajectory_id contains unsupported characters.');
     end
-    for name = {'vin_v', 'load_ohm', 'reference_voltage_v', 'stop_time_s'}
+    for name = {'vin_v', 'load_ohm', 'reference_voltage_v'}
         requirePositiveScalar(condition, name{1});
+    end
+end
+
+function validateSteadyStateAssessment(config, sampling)
+    if ~isfield(config, 'steady_state_assessment') || ...
+            ~isstruct(config.steady_state_assessment)
+        error('llc:IncompleteConfig', 'steady_state_assessment must be a JSON object.');
+    end
+    assessment = config.steady_state_assessment;
+    requiredScalars = {'window_duration_s', 'output_relative_tolerance', ...
+                       'state_mean_relative_tolerance', 'ripple_relative_tolerance', ...
+                       'ripple_floor_relative_scale', 'minimum_cycles_per_half_window'};
+    for index = 1:numel(requiredScalars)
+        requirePositiveScalar(assessment, requiredScalars{index});
+    end
+    if assessment.output_relative_tolerance >= 1 || ...
+            assessment.state_mean_relative_tolerance >= 1 || ...
+            assessment.ripple_relative_tolerance >= 1 || ...
+            assessment.ripple_floor_relative_scale >= 1
+        error('llc:InvalidConfig', 'Steady-state relative tolerances must be smaller than one.');
+    end
+    if assessment.minimum_cycles_per_half_window ~= ...
+            round(assessment.minimum_cycles_per_half_window)
+        error('llc:InvalidConfig', 'minimum_cycles_per_half_window must be an integer.');
+    end
+    if ~isfield(assessment, 'check_times_s') || ~isnumeric(assessment.check_times_s) || ...
+            isempty(assessment.check_times_s) || any(~isfinite(assessment.check_times_s)) || ...
+            any(assessment.check_times_s <= 0) || any(diff(assessment.check_times_s) <= 0)
+        error('llc:InvalidConfig', 'check_times_s must be a strictly increasing positive vector.');
+    end
+    if assessment.check_times_s(1) <= assessment.window_duration_s || ...
+            assessment.check_times_s(1) < config.control.reference_ramp_time_s
+        error('llc:InvalidConfig', 'The first checkpoint must follow the assessment window and reference ramp.');
+    end
+    if ~isfield(assessment, 'state_reference_scales') || ...
+            ~isnumeric(assessment.state_reference_scales) || ...
+            numel(assessment.state_reference_scales) ~= 4 || ...
+            any(~isfinite(assessment.state_reference_scales)) || ...
+            any(assessment.state_reference_scales <= 0)
+        error('llc:InvalidConfig', 'state_reference_scales must contain four finite positive values.');
+    end
+    intervalCounts = assessment.check_times_s * sampling.reference_frequency_hz * ...
+                     sampling.intervals_per_cycle;
+    if any(abs(intervalCounts - round(intervalCounts)) > 64 * eps(max(intervalCounts, 1)))
+        error('llc:SamplingAlignment', 'Every steady-state checkpoint must end on the fixed grid.');
     end
 end
 
