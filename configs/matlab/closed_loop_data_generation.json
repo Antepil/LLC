@@ -1,5 +1,5 @@
 {
-  "schema_version": "llc-closed-loop-data-generation-v1",
+  "schema_version": "llc-closed-loop-data-generation-v2",
   "model_file": "matlab/models/llc_full_bridge_closed_loop.slx",
   "output_directory": "data/raw/llc_closed_loop",
   "solver": {
@@ -7,6 +7,13 @@
     "max_step_s": 1.0e-7,
     "relative_tolerance": 1.0e-5,
     "absolute_tolerance": 1.0e-7
+  },
+  "sampling": {
+    "method": "uniform_reference_cycle_v1",
+    "reference_frequency_hz": 110000.0,
+    "intervals_per_cycle": 100,
+    "state_interpolation": "linear",
+    "interval_signal_sampling": "midpoint_previous"
   },
   "control": {
     "control_period_s": 1.0e-5,
@@ -30,7 +37,7 @@
       "vin_v": 400.0,
       "load_ohm": 2.304,
       "reference_voltage_v": 48.0,
-      "stop_time_s": 1.0e-2
+      "stop_time_s": 2.0e-3
     }
   ]
 }

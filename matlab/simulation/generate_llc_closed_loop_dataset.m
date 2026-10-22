@@ -58,24 +58,34 @@ function files = generate_llc_closed_loop_dataset(hardwareConfigFile, generation
         controlValues = result.llc_control_log.Data;
         report = validateResult(stateTimes, stateValues, gateTimes, gateValues, ...
                                 controlTimes, controlValues, hardware, generation, condition);
+        raw = struct('state_times_s', stateTimes, 'state_values', stateValues, ...
+                     'gate_times_s', gateTimes, 'gate_values', gateValues, ...
+                     'control_times_s', controlTimes, 'control_values', controlValues);
+        [fixed, samplingAudit] = llc_resample_fixed_grid(raw, generation.sampling, condition.stop_time_s);
 
         trajectory = struct;
-        trajectory.schema_version = 'llc-closed-loop-raw-trajectory-v1';
+        trajectory.schema_version = 'llc-closed-loop-fixed-grid-trajectory-v1';
         trajectory.trajectory_id = condition.trajectory_id;
         trajectory.state_names = cellstr(hardware.state_names);
         trajectory.state_units = cellstr(hardware.state_units);
-        trajectory.state_times_s = stateTimes;
-        trajectory.state_values = stateValues;
+        trajectory.state_times_s = fixed.state_times_s;
+        trajectory.state_values = fixed.state_values;
         trajectory.gate_names = cellstr(hardware.gate_names);
-        trajectory.gate_times_s = gateTimes;
-        trajectory.gate_values = uint8(gateValues);
         trajectory.control_names = {'frequency_hz', 'filtered_voltage_v', ...
                                     'reference_voltage_v', 'error_v', 'integral_v_s'};
         trajectory.control_units = {'Hz', 'V', 'V', 'V', 'V*s'};
-        trajectory.control_times_s = controlTimes;
-        trajectory.control_values = controlValues;
+        trajectory.interval_times_s = fixed.interval_times_s;
+        trajectory.interval_gate_values = fixed.interval_gate_values;
+        trajectory.interval_control_values = fixed.interval_control_values;
+        trajectory.raw_state_times_s = stateTimes;
+        trajectory.raw_state_values = stateValues;
+        trajectory.raw_gate_times_s = gateTimes;
+        trajectory.raw_gate_values = uint8(gateValues);
+        trajectory.raw_control_times_s = controlTimes;
+        trajectory.raw_control_values = controlValues;
         trajectory.condition = condition;
         trajectory.validation_report = report;
+        trajectory.sampling_audit = samplingAudit;
         trajectory.effective_config = struct('hardware', hardware, 'generation', generation, ...
                                              'condition', condition);
         trajectory.source_model = generation.model_file;
@@ -196,14 +206,15 @@ function validateHardware(config)
 end
 
 function validateGeneration(config)
-    if ~isfield(config, 'schema_version') || ~strcmp(config.schema_version, 'llc-closed-loop-data-generation-v1')
+    if ~isfield(config, 'schema_version') || ~strcmp(config.schema_version, 'llc-closed-loop-data-generation-v2')
         error('llc:InvalidConfig', 'Unsupported closed-loop data-generation schema_version.');
     end
     requireText(config, 'model_file');
     requireText(config, 'output_directory');
     if ~isfield(config, 'solver') || ~isstruct(config.solver) || ...
-            ~isfield(config, 'control') || ~isstruct(config.control)
-        error('llc:IncompleteConfig', 'solver and control must be JSON objects.');
+            ~isfield(config, 'control') || ~isstruct(config.control) || ...
+            ~isfield(config, 'sampling') || ~isstruct(config.sampling)
+        error('llc:IncompleteConfig', 'solver, control and sampling must be JSON objects.');
     end
     requireText(config.solver, 'name');
     if ~strcmp(config.solver.name, 'ode23t')
@@ -211,6 +222,18 @@ function validateGeneration(config)
     end
     for name = {'max_step_s', 'relative_tolerance', 'absolute_tolerance'}
         requirePositiveScalar(config.solver, name{1});
+    end
+    sampling = config.sampling;
+    if ~isfield(sampling, 'method') || ~strcmp(sampling.method, 'uniform_reference_cycle_v1') || ...
+            ~isfield(sampling, 'state_interpolation') || ~strcmp(sampling.state_interpolation, 'linear') || ...
+            ~isfield(sampling, 'interval_signal_sampling') || ...
+            ~strcmp(sampling.interval_signal_sampling, 'midpoint_previous')
+        error('llc:InvalidConfig', 'Unsupported fixed-grid sampling contract.');
+    end
+    requirePositiveScalar(sampling, 'reference_frequency_hz');
+    requirePositiveScalar(sampling, 'intervals_per_cycle');
+    if sampling.intervals_per_cycle ~= round(sampling.intervals_per_cycle)
+        error('llc:InvalidConfig', 'sampling.intervals_per_cycle must be an integer.');
     end
     controlFields = {'control_period_s', 'voltage_filter_time_constant_s', ...
                      'reference_ramp_time_s', 'initial_frequency_hz', 'bias_frequency_hz', ...
@@ -243,6 +266,13 @@ function validateGeneration(config)
     identifiers = strings(numel(config.conditions), 1);
     for index = 1:numel(config.conditions)
         validateCondition(config.conditions(index));
+        intervalCount = config.conditions(index).stop_time_s * ...
+                        sampling.reference_frequency_hz * sampling.intervals_per_cycle;
+        if abs(intervalCount - round(intervalCount)) > 64 * eps(max(intervalCount, 1))
+            error('llc:SamplingAlignment', ...
+                  'Condition %s does not end on the configured fixed grid.', ...
+                  config.conditions(index).trajectory_id);
+        end
         identifiers(index) = string(config.conditions(index).trajectory_id);
     end
     if numel(unique(identifiers)) ~= numel(identifiers)
