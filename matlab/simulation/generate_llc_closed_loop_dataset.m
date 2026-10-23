@@ -1,4 +1,5 @@
-function [files, summary] = generate_llc_closed_loop_dataset(hardwareConfigFile, generationConfigFile)
+function [files, summary] = generate_llc_closed_loop_dataset( ...
+        hardwareConfigFile, generationConfigFile, resumeExisting)
     % GENERATE_LLC_CLOSED_LOOP_DATASET Simulate voltage-feedback PFM trajectories.
     matlabRoot = fileparts(fileparts(mfilename('fullpath')));
     projectRoot = fileparts(matlabRoot);
@@ -9,6 +10,12 @@ function [files, summary] = generate_llc_closed_loop_dataset(hardwareConfigFile,
     end
     if nargin < 2 || isempty(generationConfigFile)
         generationConfigFile = fullfile(projectRoot, 'configs', 'matlab', 'closed_loop_data_generation.json');
+    end
+    if nargin < 3 || isempty(resumeExisting)
+        resumeExisting = false;
+    end
+    if ~islogical(resumeExisting) || ~isscalar(resumeExisting)
+        error('llc:InvalidArgument', 'resumeExisting must be a logical scalar.');
     end
     hardware = llc_read_json(hardwareConfigFile);
     generation = llc_read_json(generationConfigFile);
@@ -28,15 +35,33 @@ function [files, summary] = generate_llc_closed_loop_dataset(hardwareConfigFile,
     closeModel = onCleanup(@()close_system(modelName, 0));
     workspace = get_param(modelName, 'ModelWorkspace');
     files = strings(numel(generation.conditions), 1);
-    entryTemplate = struct('trajectory_id', '', 'success', false, 'output_file', '', ...
+    entryTemplate = struct('trajectory_id', '', 'success', false, 'skipped', false, 'output_file', '', ...
                            'error_identifier', '', 'error_message', '', 'steady_state', []);
     entries = repmat(entryTemplate, numel(generation.conditions), 1);
-    simulationStopTime = generation.steady_state_assessment.check_times_s(end);
+    simulationStopTime = generation.simulation_stop_time_s;
 
     for index = 1:numel(generation.conditions)
         condition = generation.conditions(index);
         entries(index).trajectory_id = condition.trajectory_id;
+        outputFile = fullfile(outputDirectory, ...
+            sprintf('trajectory_%04d_%s.mat', index, condition.trajectory_id));
         try
+            if resumeExisting && isfile(outputFile)
+                existing = load(outputFile, 'trajectory_id', 'validation_report');
+                if ~isfield(existing, 'trajectory_id') || ...
+                        ~strcmp(existing.trajectory_id, condition.trajectory_id) || ...
+                        ~isfield(existing, 'validation_report') || ...
+                        ~isfield(existing.validation_report, 'steady_state')
+                    error('llc:InvalidExistingOutput', ...
+                          'Existing trajectory does not match the requested condition: %s', outputFile);
+                end
+                files(index) = string(outputFile);
+                entries(index).success = true;
+                entries(index).skipped = true;
+                entries(index).output_file = outputFile;
+                entries(index).steady_state = existing.validation_report.steady_state;
+                continue;
+            end
             parameters = hardware;
             parameters.vin_v = condition.vin_v;
             parameters.load_ohm = condition.load_ohm;
@@ -61,6 +86,7 @@ function [files, summary] = generate_llc_closed_loop_dataset(hardwareConfigFile,
             gateValues = result.llc_gates.Data;
             controlTimes = result.llc_control_log.Time;
             controlValues = result.llc_control_log.Data;
+            gateEvents = llc_extract_gate_events(gateTimes, gateValues);
             signalReport = validateResult(stateTimes, stateValues, gateTimes, gateValues, ...
                                           controlTimes, controlValues, hardware, generation, ...
                                           simulationStopTime);
@@ -72,10 +98,10 @@ function [files, summary] = generate_llc_closed_loop_dataset(hardwareConfigFile,
                          'gate_times_s', gateTimes, 'gate_values', gateValues, ...
                          'control_times_s', controlTimes, 'control_values', controlValues);
             [fixed, samplingAudit] = llc_resample_fixed_grid( ...
-                raw, generation.sampling, steadyState.selected_stop_time_s);
+                raw, generation.sampling, simulationStopTime);
 
             trajectory = struct;
-            trajectory.schema_version = 'llc-closed-loop-fixed-grid-trajectory-v2';
+            trajectory.schema_version = 'llc-closed-loop-fixed-grid-trajectory-v3';
             trajectory.trajectory_id = condition.trajectory_id;
             trajectory.state_names = cellstr(hardware.state_names);
             trajectory.state_units = cellstr(hardware.state_units);
@@ -88,6 +114,9 @@ function [files, summary] = generate_llc_closed_loop_dataset(hardwareConfigFile,
             trajectory.interval_times_s = fixed.interval_times_s;
             trajectory.interval_gate_values = fixed.interval_gate_values;
             trajectory.interval_control_values = fixed.interval_control_values;
+            trajectory.initial_gate_values = gateEvents.initial_gate_values;
+            trajectory.gate_event_times_s = gateEvents.gate_event_times_s;
+            trajectory.gate_values_after = gateEvents.gate_values_after;
             trajectory.raw_state_times_s = stateTimes;
             trajectory.raw_state_values = stateValues;
             trajectory.raw_gate_times_s = gateTimes;
@@ -103,8 +132,6 @@ function [files, summary] = generate_llc_closed_loop_dataset(hardwareConfigFile,
                                                  'condition', condition);
             trajectory.source_model = generation.model_file;
             trajectory.matlab_version = version;
-            outputFile = fullfile(outputDirectory, ...
-                sprintf('trajectory_%04d_%s.mat', index, condition.trajectory_id));
             if isfile(outputFile)
                 error('llc:OutputExists', 'Refusing to overwrite an existing trajectory: %s', outputFile);
             end
@@ -122,7 +149,8 @@ function [files, summary] = generate_llc_closed_loop_dataset(hardwareConfigFile,
     end
     summary = struct('entries', entries, ...
                      'successful_count', nnz([entries.success]), ...
-                     'failed_count', nnz(~[entries.success]));
+                     'failed_count', nnz(~[entries.success]), ...
+                     'skipped_count', nnz([entries.skipped]));
     clear closeModel;
 end
 
@@ -207,7 +235,7 @@ function validateHardware(config)
 end
 
 function validateGeneration(config)
-    if ~isfield(config, 'schema_version') || ~strcmp(config.schema_version, 'llc-closed-loop-data-generation-v3')
+    if ~isfield(config, 'schema_version') || ~strcmp(config.schema_version, 'llc-closed-loop-data-generation-v4')
         error('llc:InvalidConfig', 'Unsupported closed-loop data-generation schema_version.');
     end
     requireText(config, 'model_file');
@@ -262,6 +290,18 @@ function validateGeneration(config)
         requirePositiveScalar(config.validation_tolerances, toleranceFields{index});
     end
     validateSteadyStateAssessment(config, sampling);
+    requirePositiveScalar(config, 'simulation_stop_time_s');
+    if config.simulation_stop_time_s < config.steady_state_assessment.check_times_s(end)
+        error('llc:InvalidConfig', ...
+              'simulation_stop_time_s must cover the final steady-state checkpoint.');
+    end
+    simulationIntervals = config.simulation_stop_time_s * sampling.reference_frequency_hz * ...
+                          sampling.intervals_per_cycle;
+    if abs(simulationIntervals - round(simulationIntervals)) > ...
+            64 * eps(max(simulationIntervals, 1))
+        error('llc:SamplingAlignment', ...
+              'simulation_stop_time_s must end on the fixed grid.');
+    end
     if ~isfield(config, 'conditions') || ~isstruct(config.conditions) || isempty(config.conditions)
         error('llc:IncompleteConfig', 'conditions must contain at least one trajectory object.');
     end
@@ -277,6 +317,8 @@ end
 
 function validateCondition(condition)
     requireText(condition, 'trajectory_id');
+    requireText(condition, 'dataset_role');
+    requireText(condition, 'generalization_type');
     if isempty(regexp(condition.trajectory_id, '^[A-Za-z0-9][A-Za-z0-9_-]*$', 'once'))
         error('llc:InvalidCondition', 'trajectory_id contains unsupported characters.');
     end

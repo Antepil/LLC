@@ -1,0 +1,64 @@
+{
+  "schema_version": "llc-closed-loop-condition-plan-v1",
+  "template_config": "configs/matlab/closed_loop_data_generation.json",
+  "simulation_stop_time_s": 0.005,
+  "steady_state_check_start_s": 0.002,
+  "steady_state_check_step_s": 0.0001,
+  "groups": [
+    {
+      "name": "train",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "config_file": "closed_loop_data_generation.json",
+      "output_directory": "data/raw/llc_closed_loop/train",
+      "expected_count": 144,
+      "vin_v": [360, 376, 392, 408, 424, 440],
+      "load_ohm": [1.8432, 2.1504, 2.4576, 2.7648],
+      "reference_voltage_v": [43.2, 45.12, 47.04, 48.96, 50.88, 52.8]
+    },
+    {
+      "name": "interpolation",
+      "dataset_role": "evaluation",
+      "generalization_type": "interpolation",
+      "config_file": "closed_loop_interpolation_data_generation.json",
+      "output_directory": "data/raw/llc_closed_loop/interpolation",
+      "expected_count": 8,
+      "vin_v": [380, 420],
+      "load_ohm": [2.0736, 2.5344],
+      "reference_voltage_v": [45.6, 50.4]
+    },
+    {
+      "name": "load_extrapolation",
+      "dataset_role": "evaluation",
+      "generalization_type": "load_extrapolation",
+      "config_file": "closed_loop_load_extrapolation_data_generation.json",
+      "output_directory": "data/raw/llc_closed_loop/load_extrapolation",
+      "expected_count": 6,
+      "vin_v": [360, 400, 440],
+      "load_ohm": [1.6128, 2.9952],
+      "reference_voltage_v": 48
+    },
+    {
+      "name": "reference_extrapolation",
+      "dataset_role": "evaluation",
+      "generalization_type": "reference_extrapolation",
+      "config_file": "closed_loop_reference_extrapolation_data_generation.json",
+      "output_directory": "data/raw/llc_closed_loop/reference_extrapolation",
+      "expected_count": 6,
+      "vin_v": [360, 400, 440],
+      "load_ohm": 2.304,
+      "reference_voltage_v": [40.8, 55.2]
+    },
+    {
+      "name": "high_voltage_extrapolation",
+      "dataset_role": "evaluation",
+      "generalization_type": "high_voltage_extrapolation",
+      "config_file": "closed_loop_high_voltage_extrapolation_data_generation.json",
+      "output_directory": "data/raw/llc_closed_loop/high_voltage_extrapolation",
+      "expected_count": 18,
+      "vin_v": [460, 480],
+      "load_ohm": [1.8432, 2.304, 2.7648],
+      "reference_voltage_v": [43.2, 48, 52.8]
+    }
+  ]
+}

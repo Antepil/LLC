@@ -1,0 +1,155 @@
+{
+  "schema_version": "llc-closed-loop-data-generation-v4",
+  "model_file": "matlab/models/llc_full_bridge_closed_loop.slx",
+  "output_directory": "data/raw/llc_closed_loop/interpolation",
+  "solver": {
+    "name": "ode23t",
+    "max_step_s": 1E-7,
+    "relative_tolerance": 1E-5,
+    "absolute_tolerance": 1E-7
+  },
+  "sampling": {
+    "method": "uniform_reference_cycle_v1",
+    "reference_frequency_hz": 110000,
+    "intervals_per_cycle": 100,
+    "state_interpolation": "linear",
+    "interval_signal_sampling": "midpoint_previous"
+  },
+  "control": {
+    "control_period_s": 1E-5,
+    "voltage_filter_time_constant_s": 5E-5,
+    "reference_ramp_time_s": 0.001,
+    "initial_frequency_hz": 180000,
+    "bias_frequency_hz": 110000,
+    "frequency_slew_rate_hz_per_s": 1.0E+8,
+    "proportional_gain_hz_per_v": 1000,
+    "integral_gain_hz_per_v_s": 5.0E+6,
+    "deadtime_s": 2E-7,
+    "minimum_pulse_s": 5E-7
+  },
+  "initial_state": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "validation_tolerances": {
+    "timing_s": 1E-12,
+    "initial_state_abs": 1E-8,
+    "stop_time_abs_s": 1E-12
+  },
+  "steady_state_assessment": {
+    "check_times_s": [
+      0.002,
+      0.0021,
+      0.0022,
+      0.0023,
+      0.0024000000000000002,
+      0.0025,
+      0.0026,
+      0.0027,
+      0.0028,
+      0.0029000000000000002,
+      0.003,
+      0.0031000000000000003,
+      0.0032,
+      0.0033,
+      0.0034000000000000002,
+      0.0035,
+      0.0036,
+      0.0037,
+      0.0038000000000000004,
+      0.0039,
+      0.004,
+      0.0041,
+      0.0042000000000000006,
+      0.0043,
+      0.0044,
+      0.0045000000000000005,
+      0.0046,
+      0.0047,
+      0.0048000000000000004,
+      0.0049,
+      0.005
+    ],
+    "window_duration_s": 0.0004,
+    "output_relative_tolerance": 0.02,
+    "state_reference_scales": [
+      10,
+      400,
+      10,
+      48
+    ],
+    "state_mean_relative_tolerance": 0.01,
+    "ripple_relative_tolerance": 0.05,
+    "ripple_floor_relative_scale": 0.01,
+    "minimum_cycles_per_half_window": 2
+  },
+  "conditions": [
+    {
+      "trajectory_id": "closed_loop_interpolation_vin380_r2p0736_vref45p6",
+      "dataset_role": "evaluation",
+      "generalization_type": "interpolation",
+      "vin_v": 380,
+      "load_ohm": 2.0736,
+      "reference_voltage_v": 45.6
+    },
+    {
+      "trajectory_id": "closed_loop_interpolation_vin380_r2p0736_vref50p4",
+      "dataset_role": "evaluation",
+      "generalization_type": "interpolation",
+      "vin_v": 380,
+      "load_ohm": 2.0736,
+      "reference_voltage_v": 50.4
+    },
+    {
+      "trajectory_id": "closed_loop_interpolation_vin380_r2p5344_vref45p6",
+      "dataset_role": "evaluation",
+      "generalization_type": "interpolation",
+      "vin_v": 380,
+      "load_ohm": 2.5344,
+      "reference_voltage_v": 45.6
+    },
+    {
+      "trajectory_id": "closed_loop_interpolation_vin380_r2p5344_vref50p4",
+      "dataset_role": "evaluation",
+      "generalization_type": "interpolation",
+      "vin_v": 380,
+      "load_ohm": 2.5344,
+      "reference_voltage_v": 50.4
+    },
+    {
+      "trajectory_id": "closed_loop_interpolation_vin420_r2p0736_vref45p6",
+      "dataset_role": "evaluation",
+      "generalization_type": "interpolation",
+      "vin_v": 420,
+      "load_ohm": 2.0736,
+      "reference_voltage_v": 45.6
+    },
+    {
+      "trajectory_id": "closed_loop_interpolation_vin420_r2p0736_vref50p4",
+      "dataset_role": "evaluation",
+      "generalization_type": "interpolation",
+      "vin_v": 420,
+      "load_ohm": 2.0736,
+      "reference_voltage_v": 50.4
+    },
+    {
+      "trajectory_id": "closed_loop_interpolation_vin420_r2p5344_vref45p6",
+      "dataset_role": "evaluation",
+      "generalization_type": "interpolation",
+      "vin_v": 420,
+      "load_ohm": 2.5344,
+      "reference_voltage_v": 45.6
+    },
+    {
+      "trajectory_id": "closed_loop_interpolation_vin420_r2p5344_vref50p4",
+      "dataset_role": "evaluation",
+      "generalization_type": "interpolation",
+      "vin_v": 420,
+      "load_ohm": 2.5344,
+      "reference_voltage_v": 50.4
+    }
+  ],
+  "simulation_stop_time_s": 0.005
+}
