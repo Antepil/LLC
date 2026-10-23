@@ -33,5 +33,7 @@ Steady-state cycle recognition uses actual bridge transitions, not an assumed fr
 A deadtime interval as long as an active interval is marked invalid for steady-state
 assessment (including missing-cycle gaps); this does not discard the trajectory.
 All successfully simulated, structurally valid trajectories are retained, including
-unregulated or unsettled cases. Assessment still starts at 2 ms and ends at 2.5 ms;
-raw logs retain the full run. This policy does not certify hardware ratings or ZVS.
+unregulated or unsettled cases. Every reviewed condition is saved through 5 ms; steady-state
+assessment runs from 2 ms through 5 ms without shortening the fixed grid. Raw applied-gate
+events are exported independently of the 90.91 ns state grid. This policy does not certify
+hardware ratings or ZVS.

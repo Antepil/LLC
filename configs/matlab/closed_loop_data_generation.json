@@ -1,12 +1,12 @@
 {
-  "schema_version": "llc-closed-loop-data-generation-v3",
+  "schema_version": "llc-closed-loop-data-generation-v4",
   "model_file": "matlab/models/llc_full_bridge_closed_loop.slx",
-  "output_directory": "data/raw/llc_closed_loop",
+  "output_directory": "data/raw/llc_closed_loop/train",
   "solver": {
     "name": "ode23t",
-    "max_step_s": 1e-7,
-    "relative_tolerance": 0.00001,
-    "absolute_tolerance": 1e-7
+    "max_step_s": 1E-7,
+    "relative_tolerance": 1E-5,
+    "absolute_tolerance": 1E-7
   },
   "sampling": {
     "method": "uniform_reference_cycle_v1",
@@ -16,16 +16,16 @@
     "interval_signal_sampling": "midpoint_previous"
   },
   "control": {
-    "control_period_s": 0.00001,
-    "voltage_filter_time_constant_s": 0.00005,
+    "control_period_s": 1E-5,
+    "voltage_filter_time_constant_s": 5E-5,
     "reference_ramp_time_s": 0.001,
     "initial_frequency_hz": 180000,
     "bias_frequency_hz": 110000,
-    "frequency_slew_rate_hz_per_s": 100000000,
+    "frequency_slew_rate_hz_per_s": 1.0E+8,
     "proportional_gain_hz_per_v": 1000,
-    "integral_gain_hz_per_v_s": 5000000,
-    "deadtime_s": 2e-7,
-    "minimum_pulse_s": 5e-7
+    "integral_gain_hz_per_v_s": 5.0E+6,
+    "deadtime_s": 2E-7,
+    "minimum_pulse_s": 5E-7
   },
   "initial_state": [
     0,
@@ -34,9 +34,9 @@
     0
   ],
   "validation_tolerances": {
-    "timing_s": 1e-12,
-    "initial_state_abs": 1e-8,
-    "stop_time_abs_s": 1e-12
+    "timing_s": 1E-12,
+    "initial_state_abs": 1E-8,
+    "stop_time_abs_s": 1E-12
   },
   "steady_state_assessment": {
     "check_times_s": [
@@ -44,8 +44,33 @@
       0.0021,
       0.0022,
       0.0023,
-      0.0024,
-      0.0025
+      0.0024000000000000002,
+      0.0025,
+      0.0026,
+      0.0027,
+      0.0028,
+      0.0029000000000000002,
+      0.003,
+      0.0031000000000000003,
+      0.0032,
+      0.0033,
+      0.0034000000000000002,
+      0.0035,
+      0.0036,
+      0.0037,
+      0.0038000000000000004,
+      0.0039,
+      0.004,
+      0.0041,
+      0.0042000000000000006,
+      0.0043,
+      0.0044,
+      0.0045000000000000005,
+      0.0046,
+      0.0047,
+      0.0048000000000000004,
+      0.0049,
+      0.005
     ],
     "window_duration_s": 0.0004,
     "output_relative_tolerance": 0.02,
@@ -62,166 +87,1157 @@
   },
   "conditions": [
     {
-      "trajectory_id": "closed_loop_vin360_r1p8432_vref43p2",
+      "trajectory_id": "closed_loop_train_vin360_r1p8432_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
       "vin_v": 360,
       "load_ohm": 1.8432,
       "reference_voltage_v": 43.2
     },
     {
-      "trajectory_id": "closed_loop_vin360_r1p8432_vref48",
+      "trajectory_id": "closed_loop_train_vin360_r1p8432_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
       "vin_v": 360,
       "load_ohm": 1.8432,
-      "reference_voltage_v": 48
+      "reference_voltage_v": 45.12
     },
     {
-      "trajectory_id": "closed_loop_vin360_r1p8432_vref52p8",
+      "trajectory_id": "closed_loop_train_vin360_r1p8432_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 360,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin360_r1p8432_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 360,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin360_r1p8432_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 360,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin360_r1p8432_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
       "vin_v": 360,
       "load_ohm": 1.8432,
       "reference_voltage_v": 52.8
     },
     {
-      "trajectory_id": "closed_loop_vin360_r2p304_vref43p2",
+      "trajectory_id": "closed_loop_train_vin360_r2p1504_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
       "vin_v": 360,
-      "load_ohm": 2.304,
+      "load_ohm": 2.1504,
       "reference_voltage_v": 43.2
     },
     {
-      "trajectory_id": "closed_loop_vin360_r2p304_vref48",
+      "trajectory_id": "closed_loop_train_vin360_r2p1504_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
       "vin_v": 360,
-      "load_ohm": 2.304,
-      "reference_voltage_v": 48
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 45.12
     },
     {
-      "trajectory_id": "closed_loop_vin360_r2p304_vref52p8",
+      "trajectory_id": "closed_loop_train_vin360_r2p1504_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
       "vin_v": 360,
-      "load_ohm": 2.304,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin360_r2p1504_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 360,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin360_r2p1504_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 360,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin360_r2p1504_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 360,
+      "load_ohm": 2.1504,
       "reference_voltage_v": 52.8
     },
     {
-      "trajectory_id": "closed_loop_vin360_r2p7648_vref43p2",
+      "trajectory_id": "closed_loop_train_vin360_r2p4576_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 360,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin360_r2p4576_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 360,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin360_r2p4576_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 360,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin360_r2p4576_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 360,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin360_r2p4576_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 360,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin360_r2p4576_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 360,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin360_r2p7648_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
       "vin_v": 360,
       "load_ohm": 2.7648,
       "reference_voltage_v": 43.2
     },
     {
-      "trajectory_id": "closed_loop_vin360_r2p7648_vref48",
+      "trajectory_id": "closed_loop_train_vin360_r2p7648_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
       "vin_v": 360,
       "load_ohm": 2.7648,
-      "reference_voltage_v": 48
+      "reference_voltage_v": 45.12
     },
     {
-      "trajectory_id": "closed_loop_vin360_r2p7648_vref52p8",
+      "trajectory_id": "closed_loop_train_vin360_r2p7648_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 360,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin360_r2p7648_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 360,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin360_r2p7648_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 360,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin360_r2p7648_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
       "vin_v": 360,
       "load_ohm": 2.7648,
       "reference_voltage_v": 52.8
     },
     {
-      "trajectory_id": "closed_loop_vin400_r1p8432_vref43p2",
-      "vin_v": 400,
+      "trajectory_id": "closed_loop_train_vin376_r1p8432_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
       "load_ohm": 1.8432,
       "reference_voltage_v": 43.2
     },
     {
-      "trajectory_id": "closed_loop_vin400_r1p8432_vref48",
-      "vin_v": 400,
+      "trajectory_id": "closed_loop_train_vin376_r1p8432_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
       "load_ohm": 1.8432,
-      "reference_voltage_v": 48
+      "reference_voltage_v": 45.12
     },
     {
-      "trajectory_id": "closed_loop_vin400_r1p8432_vref52p8",
-      "vin_v": 400,
+      "trajectory_id": "closed_loop_train_vin376_r1p8432_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
       "load_ohm": 1.8432,
-      "reference_voltage_v": 52.8
+      "reference_voltage_v": 47.04
     },
     {
-      "trajectory_id": "closed_loop_vin400_r2p304_vref43p2",
-      "vin_v": 400,
-      "load_ohm": 2.304,
-      "reference_voltage_v": 43.2
-    },
-    {
-      "trajectory_id": "closed_loop_vin400_r2p304_vref48",
-      "vin_v": 400,
-      "load_ohm": 2.304,
-      "reference_voltage_v": 48
-    },
-    {
-      "trajectory_id": "closed_loop_vin400_r2p304_vref52p8",
-      "vin_v": 400,
-      "load_ohm": 2.304,
-      "reference_voltage_v": 52.8
-    },
-    {
-      "trajectory_id": "closed_loop_vin400_r2p7648_vref43p2",
-      "vin_v": 400,
-      "load_ohm": 2.7648,
-      "reference_voltage_v": 43.2
-    },
-    {
-      "trajectory_id": "closed_loop_vin400_r2p7648_vref48",
-      "vin_v": 400,
-      "load_ohm": 2.7648,
-      "reference_voltage_v": 48
-    },
-    {
-      "trajectory_id": "closed_loop_vin400_r2p7648_vref52p8",
-      "vin_v": 400,
-      "load_ohm": 2.7648,
-      "reference_voltage_v": 52.8
-    },
-    {
-      "trajectory_id": "closed_loop_vin440_r1p8432_vref43p2",
-      "vin_v": 440,
+      "trajectory_id": "closed_loop_train_vin376_r1p8432_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
       "load_ohm": 1.8432,
-      "reference_voltage_v": 43.2
+      "reference_voltage_v": 48.96
     },
     {
-      "trajectory_id": "closed_loop_vin440_r1p8432_vref48",
-      "vin_v": 440,
+      "trajectory_id": "closed_loop_train_vin376_r1p8432_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
       "load_ohm": 1.8432,
-      "reference_voltage_v": 48
+      "reference_voltage_v": 50.88
     },
     {
-      "trajectory_id": "closed_loop_vin440_r1p8432_vref52p8",
-      "vin_v": 440,
+      "trajectory_id": "closed_loop_train_vin376_r1p8432_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
       "load_ohm": 1.8432,
       "reference_voltage_v": 52.8
     },
     {
-      "trajectory_id": "closed_loop_vin440_r2p304_vref43p2",
-      "vin_v": 440,
-      "load_ohm": 2.304,
+      "trajectory_id": "closed_loop_train_vin376_r2p1504_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.1504,
       "reference_voltage_v": 43.2
     },
     {
-      "trajectory_id": "closed_loop_vin440_r2p304_vref48",
-      "vin_v": 440,
-      "load_ohm": 2.304,
-      "reference_voltage_v": 48
+      "trajectory_id": "closed_loop_train_vin376_r2p1504_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 45.12
     },
     {
-      "trajectory_id": "closed_loop_vin440_r2p304_vref52p8",
-      "vin_v": 440,
-      "load_ohm": 2.304,
+      "trajectory_id": "closed_loop_train_vin376_r2p1504_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin376_r2p1504_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin376_r2p1504_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin376_r2p1504_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.1504,
       "reference_voltage_v": 52.8
     },
     {
-      "trajectory_id": "closed_loop_vin440_r2p7648_vref43p2",
+      "trajectory_id": "closed_loop_train_vin376_r2p4576_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin376_r2p4576_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin376_r2p4576_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin376_r2p4576_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin376_r2p4576_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin376_r2p4576_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin376_r2p7648_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin376_r2p7648_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin376_r2p7648_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin376_r2p7648_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin376_r2p7648_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin376_r2p7648_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 376,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r1p8432_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r1p8432_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r1p8432_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r1p8432_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r1p8432_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r1p8432_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p1504_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p1504_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p1504_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p1504_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p1504_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p1504_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p4576_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p4576_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p4576_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p4576_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p4576_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p4576_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p7648_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p7648_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p7648_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p7648_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p7648_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin392_r2p7648_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 392,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r1p8432_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r1p8432_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r1p8432_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r1p8432_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r1p8432_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r1p8432_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p1504_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p1504_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p1504_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p1504_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p1504_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p1504_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p4576_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p4576_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p4576_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p4576_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p4576_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p4576_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p7648_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p7648_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p7648_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p7648_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p7648_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin408_r2p7648_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 408,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r1p8432_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r1p8432_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r1p8432_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r1p8432_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r1p8432_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r1p8432_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p1504_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p1504_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p1504_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p1504_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p1504_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p1504_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p4576_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p4576_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p4576_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p4576_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p4576_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p4576_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p7648_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p7648_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p7648_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p7648_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p7648_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin424_r2p7648_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 424,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r1p8432_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r1p8432_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r1p8432_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r1p8432_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r1p8432_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r1p8432_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 1.8432,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r2p1504_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r2p1504_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r2p1504_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r2p1504_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r2p1504_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r2p1504_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 2.1504,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r2p4576_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 43.2
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r2p4576_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 45.12
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r2p4576_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r2p4576_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r2p4576_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r2p4576_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 2.4576,
+      "reference_voltage_v": 52.8
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r2p7648_vref43p2",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
       "vin_v": 440,
       "load_ohm": 2.7648,
       "reference_voltage_v": 43.2
     },
     {
-      "trajectory_id": "closed_loop_vin440_r2p7648_vref48",
+      "trajectory_id": "closed_loop_train_vin440_r2p7648_vref45p12",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
       "vin_v": 440,
       "load_ohm": 2.7648,
-      "reference_voltage_v": 48
+      "reference_voltage_v": 45.12
     },
     {
-      "trajectory_id": "closed_loop_vin440_r2p7648_vref52p8",
+      "trajectory_id": "closed_loop_train_vin440_r2p7648_vref47p04",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 47.04
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r2p7648_vref48p96",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 48.96
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r2p7648_vref50p88",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
+      "vin_v": 440,
+      "load_ohm": 2.7648,
+      "reference_voltage_v": 50.88
+    },
+    {
+      "trajectory_id": "closed_loop_train_vin440_r2p7648_vref52p8",
+      "dataset_role": "train",
+      "generalization_type": "training_domain",
       "vin_v": 440,
       "load_ohm": 2.7648,
       "reference_voltage_v": 52.8
     }
-  ]
+  ],
+  "simulation_stop_time_s": 0.005
 }

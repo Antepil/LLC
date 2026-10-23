@@ -28,18 +28,20 @@ setup_paths;
 [files, summary] = generate_llc_closed_loop_dataset();
 ```
 
-参数位于 `configs/matlab/closed_loop_data_generation.json`，生成代码不内置具体工况、检查时刻或稳态
-容差。默认配置将输入电压 `360/400/440 V`、负载电阻 `1.8432/2.304/2.7648 Ω` 和参考电压
-`43.2/48/52.8 V` 取笛卡尔积，共生成 27 条四状态零初值启动轨迹。每条轨迹内三个工况参数保持恒定，
-全部工况共用配置中的 1 ms 参考爬升和控制器参数。闭环 PI 不配置频率上下限，也不对频率指令做
-饱和裁剪；频率变化率、死区和最小脉宽仍由配置给定。
+工况唯一来源是 `configs/matlab/closed_loop_condition_plan.json`。运行
+`build_llc_closed_loop_generation_configs` 可确定性生成训练、内插、负载外推、目标电压外推和高压外推
+五份配置；脚本校验每组数量、组内唯一性及跨组隔离。默认训练配置仍为
+`configs/matlab/closed_loop_data_generation.json`，包含 `6 × 4 × 6 = 144` 条四状态零初值启动轨迹。
+全部五组共 182 条，每条工况内三个参数保持恒定，并共用 1 ms 参考爬升和控制器参数。闭环 PI 不配置
+频率上下限，也不对频率指令做饱和裁剪；频率变化率、死区和最小脉宽仍由配置给定。
 
-每个工况一次仿真到配置的最后检查点。默认在 2.0–2.5 ms 之间每隔 0.1 ms 检查一次，并只将首次
-确认稳态之前的固定网格前缀作为训练轨迹；因此默认训练轨迹长度为 2.0–2.5 ms。仿真先保留
-`ode23t` 到最后检查点的完整变步长原始输出，随后按
+每个工况统一仿真并保存到 5 ms。默认在 2.0–5.0 ms 之间每隔 0.1 ms 检查一次；稳态结果只作为
+标签，不缩短固定网格。仿真先保留 `ode23t` 到 5 ms 的完整变步长原始输出，随后按
 `sampling.reference_frequency_hz` 和 `sampling.intervals_per_cycle` 构造固定网格。状态在网格节点上线性
 插值；实际门极、频率指令和其余控制量在每个网格区间中点按前值采样。MAT 文件同时保存固定网格
-数据、完整原始求解器数据、原始仿真终止时刻和采样审计信息。
+数据、完整原始求解器数据、原始仿真终止时刻和采样审计信息。`initial_gate_values`、
+`gate_event_times_s` 和 `gate_values_after` 从实际门极日志提取，保留未吸附到固定网格的准确变化时刻；
+中点门极值继续保留用于检查和兼容读取。
 
 稳态检查使用当前检查点之前 0.4 ms 内完整的实际门极周期。`regulated` 要求所有输出电压周期均值
 位于 Vref 的 ±2% 内；`dynamics_stable` 同时检查四个状态的周期均值和峰峰值纹波是否停止漂移。
@@ -51,12 +53,21 @@ setup_paths;
 且为正，死区和最小脉宽必须能实际生成；这些属于波形结构有效性检查，并不是数据筛选用的频率边界。
 门极时序、初始状态和终止时刻的数值校验容差位于 `validation_tolerances`。
 
-达到最后检查点仍未确认稳态的数值有效轨迹也会保存，并带有 `settled=false` 标签。单个工况发生
+达到 5 ms 仍未确认稳态的数值有效轨迹也会保存，并带有 `settled=false` 标签。单个工况发生
 仿真、校验或写文件错误时，生成器发出警告并继续处理后续工况。`files` 与配置工况一一对应，失败项
 为空字符串；`summary.entries` 记录每项的成功状态、输出路径、稳态结果或错误标识与消息。
 
-参考频率为 110 kHz、每个参考周期 100 个区间时，2.0 ms 轨迹包含 22,001 个状态点，之后每增加
-0.1 ms 增加 1,100 个区间，2.5 ms 轨迹包含 27,501 个状态点。固定采样间隔约为 90.91 ns。
+参考频率为 110 kHz、每个参考周期 100 个区间时，5 ms 轨迹包含 55,001 个状态点和 55,000 个
+区间信号，固定采样间隔约为 90.91 ns。
+
+可按集合分批运行并续接已有有效输出：
+
+```matlab
+results = generate_llc_closed_loop_suite("train", true);
+results = generate_llc_closed_loop_suite( ...
+    ["interpolation", "load_extrapolation", ...
+     "reference_extrapolation", "high_voltage_extrapolation"], true);
+```
 
 生成器保留所有成功仿真且结构有效的轨迹，不用 `regulated` 或 `settled` 标签拒收数据。训练前应结合
 这些标签、状态和器件应力进行独立的数据质量检查；当前策略不构成实际硬件频率范围或 ZVS 安全认证。

@@ -94,6 +94,24 @@ function testBatchReportRejectsDuplicateTrajectoryIdentifiers(testCase)
     verifyTrue(testCase, all(contains(summary.issue_codes, "DUPLICATE_TRAJECTORY_ID")));
 end
 
+function testV3GateEventMismatchIsRejected(testCase)
+    trajectoryFile = fullfile(testCase.TestData.temporaryDirectory, 'event_mismatch.mat');
+    saveFixture(trajectoryFile, 48, false, false);
+    trajectory = load(trajectoryFile);
+    events = llc_extract_gate_events(trajectory.raw_gate_times_s, ...
+                                     trajectory.raw_gate_values);
+    trajectory.schema_version = 'llc-closed-loop-fixed-grid-trajectory-v3';
+    trajectory.initial_gate_values = events.initial_gate_values;
+    trajectory.gate_event_times_s = events.gate_event_times_s;
+    trajectory.gate_values_after = events.gate_values_after;
+    trajectory.gate_event_times_s(1) = trajectory.gate_event_times_s(1) + 1e-6;
+    save(trajectoryFile, '-struct', 'trajectory', '-v7');
+    [entry, ~, ~] = llc_validate_saved_trajectory( ...
+        trajectoryFile, testCase.TestData.config);
+    verifyFalse(testCase, entry.structural_valid);
+    verifyTrue(testCase, contains(entry.issue_codes, "GATE_EVENT_LOG_MISMATCH"));
+end
+
 function saveFixture(file, tailOutput, overlap, nonzeroInitialState)
     state_times_s = (0:1e-4:1e-3).';
     interval_times_s = 0.5 * (state_times_s(1:end-1) + state_times_s(2:end));

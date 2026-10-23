@@ -1,11 +1,12 @@
 {
   "schema_version": "llc-dataset-validation-v1",
-  "trajectory_directory": "data/raw/llc_closed_loop",
+  "trajectory_directory": "data/raw/llc_closed_loop/train",
   "file_pattern": "trajectory_*.mat",
   "report_directory": "artifacts/data_validation",
   "report_file_prefix": "llc_dataset_validation",
   "accepted_trajectory_schema_versions": [
-    "llc-closed-loop-fixed-grid-trajectory-v2"
+    "llc-closed-loop-fixed-grid-trajectory-v2",
+    "llc-closed-loop-fixed-grid-trajectory-v3"
   ],
   "required_state_names": [
     "i_Lr",
