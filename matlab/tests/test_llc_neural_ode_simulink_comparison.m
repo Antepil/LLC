@@ -7,6 +7,7 @@ function setupOnce(testCase)
     testCase.TestData.matlabRoot = matlabRoot;
     addpath(fullfile(matlabRoot, 'validation'));
     addpath(fullfile(matlabRoot, 'modulation'));
+    addpath(fullfile(matlabRoot, 'models'));
 end
 
 function teardown(testCase) %#ok<INUSD>
@@ -53,6 +54,56 @@ function testContinuousSFunctionRejectsNonfiniteVin(testCase)
         'llc:InvalidNeuralODEInput');
 end
 
+function testComparisonBuilderCreatesIndependentNeuralBranch(testCase)
+    [directory, sourceHash] = comparisonModelFixture(testCase);
+    modelFile = build_llc_neural_ode_comparison_model(directory);
+    [~, modelName] = fileparts(modelFile);
+    load_system(modelFile);
+    cleanup = onCleanup(@()closeTestModel(modelName));
+
+    requiredBlocks = {'NeuralClosedLoopPFM', 'NeuralClosedLoopOutputDemux', ...
+        'NeuralGateVinMux', 'NeuralODE', 'NeuralStateDemux', 'StateError', ...
+        'NeuralStates', 'NeuralGates', 'NeuralControl', 'StateErrorLog', ...
+        'ComparisonScope', 'StateErrorScope'};
+    for index = 1:numel(requiredBlocks)
+        verifyNotEmpty(testCase, getSimulinkBlockHandle( ...
+            [modelName '/' requiredBlocks{index}]));
+    end
+    verifyEqual(testCase, get_param([modelName '/NeuralODE'], 'FunctionName'), ...
+        'llc_neural_ode_sfun');
+    verifyEqual(testCase, get_param([modelName '/NeuralClosedLoopPFM'], 'FunctionName'), ...
+        'llc_closed_loop_pfm');
+    verifyEqual(testCase, upstreamBlock(modelName, 'NeuralClosedLoopPFM', 1), ...
+        [modelName '/NeuralStateDemux']);
+    verifyEqual(testCase, upstreamBlock(modelName, 'NeuralClosedLoopPFM', 2), ...
+        [modelName '/ExcitationDemux']);
+    verifyEqual(testCase, upstreamBlock(modelName, 'NeuralGateVinMux', 1), ...
+        [modelName '/NeuralClosedLoopOutputDemux']);
+    verifyEqual(testCase, upstreamBlock(modelName, 'NeuralGateVinMux', 2), ...
+        [modelName '/ExcitationDemux']);
+
+    workspace = get_param(modelName, 'ModelWorkspace');
+    runtime = getVariable(workspace, 'llc_neural_runtime');
+    verifyTrue(testCase, runtime.is_placeholder);
+    verifyEqual(testCase, runtime.initial_state, zeros(4, 1));
+    verifyEqual(testCase, sha256File(fullfile(directory, ...
+        'llc_full_bridge_closed_loop.slx')), sourceHash);
+    clear cleanup;
+    closeTestModel(modelName);
+end
+
+function testComparisonBuilderIsIdempotentAndPreservesSource(testCase)
+    [directory, sourceHash] = comparisonModelFixture(testCase);
+    first = build_llc_neural_ode_comparison_model(directory);
+    firstHash = sha256File(first);
+    second = build_llc_neural_ode_comparison_model(directory);
+
+    verifyEqual(testCase, second, first);
+    verifyEqual(testCase, sha256File(first), firstHash);
+    verifyEqual(testCase, sha256File(fullfile(directory, ...
+        'llc_full_bridge_closed_loop.slx')), sourceHash);
+end
+
 function logged = simulateNeuralHarness(runtime, inputValue, stopTime)
     [~, suffix] = fileparts(tempname);
     modelName = matlab.lang.makeValidName(['neural_sfun_' suffix]);
@@ -77,6 +128,42 @@ function logged = simulateNeuralHarness(runtime, inputValue, stopTime)
     logged = simulation.get('neural_states');
     clear cleanup;
     closeTestModel(modelName);
+end
+
+function [directory, sourceHash] = comparisonModelFixture(testCase)
+    directory = tempname;
+    mkdir(directory);
+    testCase.addTeardown(@()removeDirectoryIfPresent(directory));
+    source = fullfile(testCase.TestData.matlabRoot, 'models', ...
+        'llc_full_bridge_closed_loop.slx');
+    destination = fullfile(directory, 'llc_full_bridge_closed_loop.slx');
+    copyfile(source, destination);
+    sourceHash = sha256File(destination);
+end
+
+function source = upstreamBlock(modelName, blockName, inputIndex)
+    ports = get_param([modelName '/' blockName], 'PortHandles');
+    line = get_param(ports.Inport(inputIndex), 'Line');
+    sourcePort = get_param(line, 'SrcPortHandle');
+    source = getfullname(get_param(sourcePort, 'Parent'));
+end
+
+function hash = sha256File(file)
+    stream = java.io.FileInputStream(java.io.File(file));
+    cleanup = onCleanup(@()stream.close());
+    digest = java.security.MessageDigest.getInstance('SHA-256');
+    buffer = zeros(1, 8192, 'int8');
+    while true
+        count = stream.read(buffer, 0, numel(buffer));
+        if count < 0
+            break;
+        end
+        digest.update(buffer(1:count));
+    end
+    bytes = typecast(digest.digest(), 'uint8');
+    hash = lower(reshape(dec2hex(bytes, 2).', 1, []));
+    clear cleanup;
+    stream.close();
 end
 
 function verifySimulationError(testCase, operation, expectedIdentifier)
@@ -119,5 +206,11 @@ end
 function closeTestModel(modelName)
     if bdIsLoaded(modelName)
         close_system(modelName, 0);
+    end
+end
+
+function removeDirectoryIfPresent(directory)
+    if isfolder(directory)
+        rmdir(directory, 's');
     end
 end
