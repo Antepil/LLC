@@ -79,6 +79,15 @@ python scripts/train.py --config configs/base.yaml
 `matlab/README.md` 生成 continuous-random 数据；缺少任何正式轨迹都会显式报错。训练结束后
 加载验证指标排名第一的检查点执行测试集评估，而不是直接评估最后一个 epoch。
 
+数据仍在生成时，可用 `--available-snapshot` 固定启动时已经完成的正式轨迹，并跳过尚不可用的
+测试集评估。阶段性训练必须使用独立的检查点目录；后续新增文件不会进入已启动的进程，且由于
+数据身份不同也不能混入同一次续训。例如：
+
+```bash
+python scripts/train.py --config configs/base.yaml --available-snapshot \
+  --checkpoint-directory artifacts/checkpoints/available_snapshot_YYYYMMDD_HHMMSS
+```
+
 ## 训练检查点
 
 `configs/base.yaml` 已定义检查点目录、Top-K 指标与保留数量、文件名模板以及

@@ -41,6 +41,8 @@ class TrainingConfig:
     project_root: Path
     data_directory: Path
     dataset_manifest: Path
+    dataset_policy: str
+    evaluate_test: bool
     file_pattern: str
     split_directories: Mapping[str, str]
     epochs: int
@@ -68,6 +70,8 @@ class TrainingConfig:
         expected = {
             "data_directory",
             "dataset_manifest",
+            "dataset_policy",
+            "evaluate_test",
             "file_pattern",
             "split_directories",
             "epochs",
@@ -92,6 +96,12 @@ class TrainingConfig:
         if not isinstance(pattern, str) or not pattern or Path(pattern).name != pattern:
             raise ValueError(
                 "training.file_pattern must be a nonempty basename pattern"
+            )
+        dataset_policy = raw["dataset_policy"]
+        if dataset_policy not in {"formal_complete", "available_snapshot"}:
+            raise ValueError(
+                "training.dataset_policy must be 'formal_complete' or "
+                "'available_snapshot'"
             )
         split_directories = raw["split_directories"]
         if not isinstance(split_directories, Mapping):
@@ -128,6 +138,8 @@ class TrainingConfig:
             project_root=project_root.resolve(),
             data_directory=data_directory,
             dataset_manifest=dataset_manifest,
+            dataset_policy=dataset_policy,
+            evaluate_test=_boolean(raw["evaluate_test"], "training.evaluate_test"),
             file_pattern=pattern,
             split_directories=parsed_splits,
             epochs=_positive_int(raw["epochs"], "training.epochs"),
@@ -221,6 +233,7 @@ def train_from_config(
             shuffle=(role == "train"),
         )
         for role, items in trajectories.items()
+        if items
     }
     start_epoch = 0
     global_step = 0
@@ -285,22 +298,29 @@ def train_from_config(
         map_location=device,
         restore_rng=False,
     )
-    test_mse, _ = run_epoch(
-        model=model,
-        loader=loaders["test"],
-        solver=solver,
-        loss_function=loss_function,
-        device=device,
-    )
     final_metrics["selected_val_rollout_mse"] = selected.metrics[
         "val_rollout_mse"
     ]
-    final_metrics["test_rollout_mse"] = test_mse
-    print(
-        f"test_rollout_mse={test_mse:.6e} selected_epoch={selected.epoch + 1} "
-        f"checkpoint={selected_checkpoint}",
-        flush=True,
-    )
+    if training.evaluate_test:
+        test_mse, _ = run_epoch(
+            model=model,
+            loader=loaders["test"],
+            solver=solver,
+            loss_function=loss_function,
+            device=device,
+        )
+        final_metrics["test_rollout_mse"] = test_mse
+        print(
+            f"test_rollout_mse={test_mse:.6e} selected_epoch={selected.epoch + 1} "
+            f"checkpoint={selected_checkpoint}",
+            flush=True,
+        )
+    else:
+        print(
+            f"test_evaluation=skipped selected_epoch={selected.epoch + 1} "
+            f"checkpoint={selected_checkpoint}",
+            flush=True,
+        )
     return TrainingResult(
         start_epoch=start_epoch,
         completed_epochs=training.epochs - start_epoch,
@@ -325,7 +345,7 @@ def load_training_dataset(
         expected_for_role = expected[role]
         missing = sorted(set(expected_for_role).difference(actual))
         unexpected = sorted(set(actual).difference(expected_for_role))
-        if missing or unexpected:
+        if unexpected or (missing and training.dataset_policy == "formal_complete"):
             raise ValueError(
                 f"{role} split does not match dataset manifest; "
                 f"missing={missing}, unexpected={unexpected}"
@@ -334,7 +354,7 @@ def load_training_dataset(
         split_root = (
             training.data_directory / training.split_directories[role]
         ).resolve()
-        for trajectory_id in sorted(expected_for_role):
+        for trajectory_id in sorted(actual):
             item = actual[trajectory_id]
             relative_path = item.source_path.resolve().relative_to(
                 training.data_directory
@@ -359,6 +379,7 @@ def load_training_dataset(
         trajectories=trajectories,
         identity={
             "schema_version": "llc-training-dataset-identity-v1",
+            "dataset_policy": training.dataset_policy,
             "manifest_sha256": manifest_digest,
             "splits": identity_splits,
         },
@@ -378,12 +399,17 @@ def load_trajectory_splits(
         ).resolve()
         if not directory.is_relative_to(training.data_directory):
             raise ValueError(f"resolved {role} split directory escapes data_directory")
-        if not directory.is_dir():
+        split_is_required = role != "test" or training.evaluate_test
+        if not directory.is_dir() and split_is_required:
             raise FileNotFoundError(
                 f"{role} split directory does not exist: {directory}"
             )
-        files = tuple(sorted(directory.rglob(training.file_pattern)))
-        if not files:
+        files = (
+            tuple(sorted(directory.rglob(training.file_pattern)))
+            if directory.is_dir()
+            else ()
+        )
+        if not files and split_is_required:
             raise FileNotFoundError(
                 f"{role} split contains no {training.file_pattern} files"
             )

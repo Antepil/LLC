@@ -111,6 +111,8 @@ def root_config(*, epochs: int) -> dict[str, object]:
         "training": {
             "data_directory": "data/raw/formal",
             "dataset_manifest": "configs/formal.json",
+            "dataset_policy": "formal_complete",
+            "evaluate_test": True,
             "file_pattern": "*.mat",
             "split_directories": {
                 "train": "train",
@@ -152,6 +154,8 @@ class TrainingConfigTests(unittest.TestCase):
                     "training": {
                         "data_directory": "data/raw",
                         "dataset_manifest": "configs/formal.json",
+                        "dataset_policy": "formal_complete",
+                        "evaluate_test": True,
                         "file_pattern": "*.mat",
                         "split_directories": {
                             "train": "train",
@@ -257,6 +261,22 @@ class TrainingConfigTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(ValueError, "missing="):
                     load_training_dataset(root_config(epochs=1), training=training)
+
+            snapshot_config = root_config(epochs=1)
+            snapshot_config["training"]["dataset_policy"] = "available_snapshot"
+            snapshot_training = TrainingConfig.from_mapping(
+                snapshot_config, project_root=project_root
+            )
+            with patch(
+                "llc_dynamics.training.load_trajectory_splits", return_value=incomplete
+            ):
+                snapshot = load_training_dataset(
+                    snapshot_config, training=snapshot_training
+                )
+            self.assertEqual(len(snapshot.trajectories["train"]), 79)
+            self.assertEqual(
+                snapshot.identity["dataset_policy"], "available_snapshot"
+            )
 
 
 class EpochTests(unittest.TestCase):

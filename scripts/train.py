@@ -25,6 +25,19 @@ def parse_args() -> argparse.Namespace:
         default=Path(__file__).resolve().parents[1],
         help="project root used to resolve data and artifact paths",
     )
+    parser.add_argument(
+        "--available-snapshot",
+        action="store_true",
+        help=(
+            "train from the currently completed formal trajectories and skip test "
+            "evaluation; the startup file set is frozen in the checkpoint"
+        ),
+    )
+    parser.add_argument(
+        "--checkpoint-directory",
+        type=Path,
+        help="override checkpoint directory with a project-relative path",
+    )
     return parser.parse_args()
 
 
@@ -37,6 +50,11 @@ def main() -> None:
         config = yaml.safe_load(stream)
     if not isinstance(config, dict):
         raise TypeError("YAML configuration root must be a mapping")
+    if args.available_snapshot:
+        config["training"]["dataset_policy"] = "available_snapshot"
+        config["training"]["evaluate_test"] = False
+    if args.checkpoint_directory is not None:
+        config["checkpoint"]["directory"] = args.checkpoint_directory.as_posix()
     result = train_from_config(
         config, project_root=args.project_root.expanduser().resolve()
     )
