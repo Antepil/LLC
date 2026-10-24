@@ -8,6 +8,7 @@ function setupOnce(testCase)
     addpath(fullfile(matlabRoot, 'validation'));
     addpath(fullfile(matlabRoot, 'modulation'));
     addpath(fullfile(matlabRoot, 'models'));
+    addpath(fullfile(matlabRoot, 'export'));
 end
 
 function teardown(testCase) %#ok<INUSD>
@@ -104,6 +105,76 @@ function testComparisonBuilderIsIdempotentAndPreservesSource(testCase)
         'llc_full_bridge_closed_loop.slx')), sourceHash);
 end
 
+function testColdComparisonSimulationReturnsAlignedFiniteLogs(testCase)
+    times = (0:5e-6:20e-6).';
+    control = comparisonControl;
+    runtime = validRuntime;
+    result = llc_simulate_neural_ode_comparison( ...
+        runtime.model, comparisonHardware(testCase), comparisonModelFile(testCase), ...
+        zeros(4, 1), zeros(4, 1), ...
+        llc_initialize_closed_loop_controller(control), times, ...
+        constantSignal(400), constantSignal(48), control, comparisonSolver);
+
+    verifyEqual(testCase, result.times_s, times, 'AbsTol', 0);
+    verifySize(testCase, result.reference_states, [numel(times), 4]);
+    verifySize(testCase, result.predicted_states, [numel(times), 4]);
+    verifyEqual(testCase, result.state_error, ...
+        result.reference_states - result.predicted_states, 'AbsTol', 1e-10);
+    verifyTrue(testCase, all(isfinite(result.reference_states), 'all'));
+    verifyTrue(testCase, all(isfinite(result.predicted_states), 'all'));
+    verifySize(testCase, result.reference_control_values, [numel(times), 5]);
+    verifySize(testCase, result.neural_control_values, [numel(times), 5]);
+    verifySize(testCase, result.reference_gate_values, [numel(times), 4]);
+    verifySize(testCase, result.neural_gate_values, [numel(times), 4]);
+end
+
+function testWarmComparisonRestoresBothBranchesAndIndependentControllers(testCase)
+    times = [0; 1e-6; 2e-6];
+    control = comparisonControl;
+    state = llc_initialize_closed_loop_controller(control);
+    state.reference_ramp_elapsed_time_s = control.reference_ramp_time_s;
+    state.reference_voltage_v = 48;
+    state.filtered_voltage_v = 47;
+    state.error_v = 1;
+    state.integral_v_s = 2e-5;
+    state.frequency_hz = 125e3;
+    state.next_control_time_s = 1e-6;
+    state.next_edge_time_s = 3e-6;
+    state.pending_on_time_s = Inf;
+    state.active_pair = 1;
+    state.pending_pair = 0;
+    referenceInitial = [1; 2; 3; 4];
+    neuralInitial = [5; 6; 7; 8];
+    runtime = validRuntime;
+
+    result = llc_simulate_neural_ode_comparison( ...
+        runtime.model, comparisonHardware(testCase), comparisonModelFile(testCase), ...
+        referenceInitial, neuralInitial, state, times, ...
+        constantSignal(400), constantSignal(48), control, comparisonSolver);
+
+    verifyEqual(testCase, result.reference_states(1, :), referenceInitial.', 'AbsTol', 1e-8);
+    verifyEqual(testCase, result.predicted_states(1, :), neuralInitial.', 'AbsTol', 1e-12);
+    expectedControl = [125e3 47 48 1 2e-5];
+    verifyEqual(testCase, result.reference_control_values(1, :), expectedControl, ...
+        'AbsTol', 1e-10);
+    verifyEqual(testCase, result.neural_control_values(1, :), expectedControl, ...
+        'AbsTol', 1e-10);
+    verifyFalse(testCase, isequal(result.raw_reference_control_values, ...
+                                  result.raw_neural_control_values));
+end
+
+function testComparisonSimulationRejectsMissingLog(testCase)
+    modelFile = modifiedComparisonModel(testCase, 'delete_neural_control');
+    verifyError(testCase, @()runShortComparison(testCase, modelFile), ...
+        'llc:MissingComparisonLog');
+end
+
+function testComparisonSimulationRejectsInsufficientLogCoverage(testCase)
+    modelFile = modifiedComparisonModel(testCase, 'truncate_neural_states');
+    verifyError(testCase, @()runShortComparison(testCase, modelFile), ...
+        'llc:InvalidComparisonLog');
+end
+
 function logged = simulateNeuralHarness(runtime, inputValue, stopTime)
     [~, suffix] = fileparts(tempname);
     modelName = matlab.lang.makeValidName(['neural_sfun_' suffix]);
@@ -139,6 +210,67 @@ function [directory, sourceHash] = comparisonModelFixture(testCase)
     destination = fullfile(directory, 'llc_full_bridge_closed_loop.slx');
     copyfile(source, destination);
     sourceHash = sha256File(destination);
+end
+
+function result = runShortComparison(testCase, modelFile)
+    control = comparisonControl;
+    runtime = validRuntime;
+    result = llc_simulate_neural_ode_comparison( ...
+        runtime.model, comparisonHardware(testCase), modelFile, ...
+        zeros(4, 1), zeros(4, 1), llc_initialize_closed_loop_controller(control), ...
+        [0; 5e-6; 10e-6], constantSignal(400), constantSignal(48), ...
+        control, comparisonSolver);
+end
+
+function file = modifiedComparisonModel(testCase, modification)
+    directory = tempname;
+    mkdir(directory);
+    testCase.addTeardown(@()removeDirectoryIfPresent(directory));
+    file = fullfile(directory, 'llc_neural_ode_comparison.slx');
+    copyfile(comparisonModelFile(testCase), file);
+    bdclose('all');
+    load_system(file);
+    model = 'llc_neural_ode_comparison';
+    if strcmp(modification, 'delete_neural_control')
+        delete_block([model '/NeuralControl']);
+    elseif strcmp(modification, 'truncate_neural_states')
+        set_param([model '/NeuralStates'], 'SampleTime', '1');
+    else
+        error('llc:TestFixture', 'Unknown model modification.');
+    end
+    save_system(model, file);
+    close_system(model, 0);
+end
+
+function file = comparisonModelFile(testCase)
+    file = fullfile(testCase.TestData.matlabRoot, 'models', ...
+        'llc_neural_ode_comparison.slx');
+end
+
+function hardware = comparisonHardware(testCase)
+    hardware = llc_read_json(fullfile(fileparts(testCase.TestData.matlabRoot), ...
+        'configs', 'matlab', 'hardware.json'));
+end
+
+function control = comparisonControl
+    control = struct('control_period_s', 1e-5, ...
+        'voltage_filter_time_constant_s', 5e-5, ...
+        'reference_ramp_time_s', 1e-3, ...
+        'initial_frequency_hz', 180e3, 'bias_frequency_hz', 110e3, ...
+        'frequency_slew_rate_hz_per_s', 1e8, ...
+        'proportional_gain_hz_per_v', 1e3, ...
+        'integral_gain_hz_per_v_s', 5e6, ...
+        'deadtime_s', 2e-7, 'minimum_pulse_s', 5e-7);
+end
+
+function solver = comparisonSolver
+    solver = struct('name', 'ode23t', 'max_step_s', 1e-7, ...
+        'relative_tolerance', 1e-6, 'absolute_tolerance', 1e-8, ...
+        'event_time_tolerance_s', 1e-12);
+end
+
+function signal = constantSignal(value)
+    signal = struct('type', 'constant', 'value_v', value);
 end
 
 function source = upstreamBlock(modelName, blockName, inputIndex)
