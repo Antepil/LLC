@@ -62,8 +62,10 @@ python -m unittest discover -s tests -v
 
 ## 训练
 
-训练入口从 `training.data_directory` 下的 `train`、`validation`、`test` 子目录递归读取
-MATLAB 轨迹。三个集合按完整轨迹隔离，状态尺度只从训练集合拟合；随后按窗口构造 DataLoader，
+训练入口按 `training.dataset_manifest` 核对正式的 120 条 continuous-random 轨迹，并从
+`training.data_directory` 下的 `train`、`validation`、`test` 子目录递归读取 MATLAB 轨迹。
+程序严格检查 80/20/20 数量、轨迹 ID、激励分组、目录归属和文件 SHA-256；三个集合按完整轨迹
+隔离，状态尺度只从训练集合拟合；随后按窗口构造 DataLoader，
 执行事件感知 rollout、反向传播、AdamW 参数更新、验证集评估和 Top-K/last 检查点保存。训练结束
 后报告测试集指标，但测试集不参与选模。运行：
 
@@ -72,9 +74,10 @@ source .venv-gpu/bin/activate
 python scripts/train.py --config configs/base.yaml
 ```
 
-`training.resume_last: true` 时，如果检查点目录已有 `last.ckpt`，训练会严格核对模型和归一化
-契约并从下一 epoch 继续。正式训练前需先按 `matlab/README.md` 生成 continuous-random 数据；
-任一集合目录缺失或为空都会显式报错。
+`training.resume_last: true` 时，如果检查点目录已有 `last.ckpt`，训练先恢复其中的归一化尺度，
+再严格核对模型、归一化契约和完整数据身份，从下一 epoch 继续。正式训练前需先按
+`matlab/README.md` 生成 continuous-random 数据；缺少任何正式轨迹都会显式报错。训练结束后
+加载验证指标排名第一的检查点执行测试集评估，而不是直接评估最后一个 epoch。
 
 ## 训练检查点
 

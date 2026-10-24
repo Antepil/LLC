@@ -491,6 +491,39 @@ class CheckpointManager:
             restore_rng=restore_rng,
         )
 
+    def read_run_config(
+        self, path: Path, *, map_location: torch.device | str = "cpu"
+    ) -> Mapping[str, Any]:
+        """Read the configuration from a trusted checkpoint without restoring state."""
+
+        if not isinstance(path, Path):
+            raise TypeError("checkpoint path must be a pathlib.Path")
+        if not path.is_file():
+            raise FileNotFoundError(f"checkpoint does not exist: {path}")
+        if not isinstance(map_location, (str, torch.device)):
+            raise TypeError("map_location must be a device string or torch.device")
+        torch.device(map_location)
+        payload = torch.load(path, map_location=map_location, weights_only=False)
+        if not isinstance(payload, Mapping):
+            raise TypeError("checkpoint payload must be a mapping")
+        if payload.get("schema_version") != _PAYLOAD_SCHEMA_VERSION:
+            raise ValueError("unsupported checkpoint payload schema version")
+        run_config = payload.get("run_config")
+        if not isinstance(run_config, Mapping):
+            raise TypeError("checkpoint run_config must be a mapping")
+        self._validate_run_config_contract(run_config, name="checkpoint run_config")
+        return copy.deepcopy(dict(run_config))
+
+    def best_checkpoint_path(self) -> Path:
+        """Return the existing checkpoint ranked best by the configured policy."""
+
+        if not self._entries:
+            raise FileNotFoundError("checkpoint manifest contains no ranked checkpoints")
+        path = self.config.directory / self._entries[0].filename
+        if not path.is_file():
+            raise FileNotFoundError(f"best checkpoint does not exist: {path}")
+        return path
+
     def _validate_payload(
         self,
         payload: Any,
@@ -577,6 +610,10 @@ class CheckpointManager:
         for section in ("model", "normalization"):
             if saved_run_config[section] != expected_run_config[section]:
                 raise ValueError(f"checkpoint {section} configuration is incompatible")
+        saved_identity = saved_run_config.get("dataset_identity")
+        expected_identity = expected_run_config.get("dataset_identity")
+        if saved_identity != expected_identity:
+            raise ValueError("checkpoint dataset identity is incompatible")
 
         python_rng_state = payload["python_rng_state"]
         try:
@@ -620,6 +657,9 @@ class CheckpointManager:
                 raise ValueError(f"{name} is missing {section}")
             if not isinstance(run_config[section], Mapping):
                 raise TypeError(f"{name}.{section} must be a mapping")
+        identity = run_config.get("dataset_identity")
+        if identity is not None and not isinstance(identity, Mapping):
+            raise TypeError(f"{name}.dataset_identity must be a mapping")
 
     @staticmethod
     def _validate_optimizer_state(

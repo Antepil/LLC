@@ -317,6 +317,13 @@ class CheckpointSaveTests(unittest.TestCase):
 
         entries = self.manifest(config)["entries"]
         self.assertEqual([entry["metric"] for entry in entries], [2.0, 3.0])
+        self.assertEqual(
+            manager.best_checkpoint_path().name,
+            "epoch=0002-loss=2.000.ckpt",
+        )
+        self.assertEqual(
+            manager.read_run_config(manager.best_checkpoint_path()), self.run_config
+        )
 
     def test_equal_metrics_prefer_later_epoch_then_global_step(self) -> None:
         config = self.config(

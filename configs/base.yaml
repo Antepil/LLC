@@ -62,6 +62,7 @@ loss:
 training:
   # 正式数据由 MATLAB 生成器按 train/validation/test 子目录保存。
   data_directory: data/raw/llc_sinusoidal_excitation/continuous_random
+  dataset_manifest: configs/matlab/sinusoidal_excitation/continuous_random_data_generation.json
   file_pattern: '*.mat'
   split_directories:
     train: train

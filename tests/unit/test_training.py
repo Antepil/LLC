@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -21,8 +23,10 @@ from llc_dynamics.support import (
     collate_rollout_windows,
 )
 from llc_dynamics.training import (
+    LoadedTrainingDataset,
     TrainingConfig,
     fit_training_normalizer,
+    load_training_dataset,
     run_epoch,
     train_from_config,
 )
@@ -106,6 +110,7 @@ def root_config(*, epochs: int) -> dict[str, object]:
         },
         "training": {
             "data_directory": "data/raw/formal",
+            "dataset_manifest": "configs/formal.json",
             "file_pattern": "*.mat",
             "split_directories": {
                 "train": "train",
@@ -146,6 +151,7 @@ class TrainingConfigTests(unittest.TestCase):
                 {
                     "training": {
                         "data_directory": "data/raw",
+                        "dataset_manifest": "configs/formal.json",
                         "file_pattern": "*.mat",
                         "split_directories": {
                             "train": "train",
@@ -170,6 +176,9 @@ class TrainingConfigTests(unittest.TestCase):
             )
         self.assertEqual(config.batch_size, 4)
         self.assertEqual(config.optimizer_type, "AdamW")
+        self.assertEqual(
+            config.dataset_manifest, Path(temporary) / "configs/formal.json"
+        )
 
     def test_fit_uses_all_training_nodes_only(self) -> None:
         normalizer = fit_training_normalizer(
@@ -180,6 +189,74 @@ class TrainingConfigTests(unittest.TestCase):
         )
         expected = np.sqrt(np.mean(all_states**2, axis=0))
         np.testing.assert_allclose(normalizer.state_scales.numpy(), expected)
+
+    def test_formal_manifest_requires_all_120_trajectories_and_builds_identity(
+        self,
+    ) -> None:
+        distributions = {
+            "train": {"vin_only": 20, "reference_only": 20, "both": 40},
+            "validation": {"vin_only": 5, "reference_only": 5, "both": 10},
+            "test": {"vin_only": 5, "reference_only": 5, "both": 10},
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            project_root = Path(temporary)
+            data_root = project_root / "data/raw/formal"
+            conditions: list[dict[str, object]] = []
+            splits: dict[str, tuple[MATLABTrajectory, ...]] = {}
+            for role, groups in distributions.items():
+                items: list[MATLABTrajectory] = []
+                sequence = 0
+                for group, count in groups.items():
+                    for group_index in range(1, count + 1):
+                        sequence += 1
+                        identifier = f"{role}_{group}_{group_index:02d}"
+                        source = data_root / role / group / f"{sequence:04d}.mat"
+                        source.parent.mkdir(parents=True, exist_ok=True)
+                        source.write_bytes(identifier.encode())
+                        items.append(replace(trajectory(identifier), source_path=source))
+                        conditions.append(
+                            {
+                                "trajectory_id": identifier,
+                                "dataset_role": role,
+                                "excitation_group": group,
+                                "random_seed": sequence,
+                            }
+                        )
+                splits[role] = tuple(items)
+            manifest_path = project_root / "configs/formal.json"
+            manifest_path.parent.mkdir(parents=True)
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": (
+                            "llc-continuous-random-excitation-data-generation-v1"
+                        ),
+                        "output_directory": "data/raw/formal",
+                        "conditions": conditions,
+                    }
+                )
+            )
+            training = TrainingConfig.from_mapping(
+                root_config(epochs=1), project_root=project_root
+            )
+            with patch(
+                "llc_dynamics.training.load_trajectory_splits", return_value=splits
+            ):
+                loaded = load_training_dataset(
+                    root_config(epochs=1), training=training
+                )
+            self.assertEqual(
+                [len(loaded.identity["splits"][role]) for role in distributions],
+                [80, 20, 20],
+            )
+            self.assertEqual(len(loaded.identity["manifest_sha256"]), 64)
+
+            incomplete = {**splits, "train": splits["train"][:-1]}
+            with patch(
+                "llc_dynamics.training.load_trajectory_splits", return_value=incomplete
+            ):
+                with self.assertRaisesRegex(ValueError, "missing="):
+                    load_training_dataset(root_config(epochs=1), training=training)
 
 
 class EpochTests(unittest.TestCase):
@@ -232,17 +309,63 @@ class EpochTests(unittest.TestCase):
             all(torch.equal(old, new) for old, new in zip(trained, model.parameters()))
         )
 
+    def test_nonfinite_gradient_is_rejected_before_parameter_update(self) -> None:
+        source = trajectory("bad-gradient")
+        normalizer = LLCNormalizer(
+            state_scales=[1.0, 2.0, 3.0, 4.0],
+            vin_reference_v=400.0,
+            time_reference_s=1.0,
+            dtype=torch.float64,
+        )
+        loader = DataLoader(
+            TrajectoryWindowDataset(
+                [source], normalizer=normalizer, spec=WindowSpec(2, 2)
+            ),
+            batch_size=1,
+            collate_fn=collate_rollout_windows,
+        )
+        model = LLCNeuralODE(hidden_dims=[4], device="cpu")
+        optimizer = torch.optim.AdamW(model.parameters(), lr=1.0e-3)
+        parameter = next(model.parameters())
+        handle = parameter.register_hook(lambda gradient: gradient * float("inf"))
+        before = [value.detach().clone() for value in model.parameters()]
+        try:
+            with self.assertRaisesRegex(
+                FloatingPointError, r"bad-gradient\[0\]"
+            ):
+                run_epoch(
+                    model=model,
+                    loader=loader,
+                    solver=RolloutSolverConfig("rk4", 0.1),
+                    loss_function=NormalizedRolloutMSE(),
+                    device=torch.device("cpu"),
+                    optimizer=optimizer,
+                    gradient_clip_norm=1.0,
+                )
+        finally:
+            handle.remove()
+        self.assertTrue(
+            all(
+                torch.equal(old, new)
+                for old, new in zip(before, model.parameters(), strict=True)
+            )
+        )
+
     def test_end_to_end_training_saves_and_resumes_checkpoint(self) -> None:
         splits = {
             "train": (trajectory("train"),),
             "validation": (trajectory("validation"),),
             "test": (trajectory("test"),),
         }
+        dataset = LoadedTrainingDataset(
+            trajectories=splits,
+            identity={"schema_version": "test-dataset", "splits": {}},
+        )
         with tempfile.TemporaryDirectory() as temporary:
             project_root = Path(temporary)
             with patch(
-                "llc_dynamics.training.load_trajectory_splits",
-                return_value=splits,
+                "llc_dynamics.training.load_training_dataset",
+                return_value=dataset,
             ):
                 first = train_from_config(
                     root_config(epochs=1), project_root=project_root
@@ -260,6 +383,50 @@ class EpochTests(unittest.TestCase):
                 (project_root / "artifacts/checkpoints/last.ckpt").is_file()
             )
             self.assertIn("test_rollout_mse", resumed.final_metrics)
+            self.assertEqual(
+                resumed.final_metrics["selected_val_rollout_mse"],
+                resumed.final_metrics["val_rollout_mse"],
+            )
+            self.assertEqual(resumed.selected_epoch, 1)
+            self.assertTrue(resumed.selected_checkpoint.is_file())
+
+    def test_resume_reuses_checkpoint_scales_and_rejects_changed_dataset(self) -> None:
+        splits = {
+            "train": (trajectory("train"),),
+            "validation": (trajectory("validation"),),
+            "test": (trajectory("test"),),
+        }
+        first_dataset = LoadedTrainingDataset(
+            trajectories=splits,
+            identity={"schema_version": "test-dataset", "revision": "one"},
+        )
+        changed_dataset = LoadedTrainingDataset(
+            trajectories=splits,
+            identity={"schema_version": "test-dataset", "revision": "two"},
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            project_root = Path(temporary)
+            with patch(
+                "llc_dynamics.training.load_training_dataset",
+                return_value=first_dataset,
+            ):
+                train_from_config(root_config(epochs=1), project_root=project_root)
+                with patch(
+                    "llc_dynamics.training.fit_training_normalizer",
+                    side_effect=AssertionError("resume must not refit scales"),
+                ):
+                    resumed = train_from_config(
+                        root_config(epochs=2), project_root=project_root
+                    )
+            self.assertEqual(resumed.start_epoch, 1)
+            with patch(
+                "llc_dynamics.training.load_training_dataset",
+                return_value=changed_dataset,
+            ):
+                with self.assertRaisesRegex(ValueError, "dataset identity"):
+                    train_from_config(
+                        root_config(epochs=3), project_root=project_root
+                    )
 
 
 if __name__ == "__main__":

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import math
 import random
 from collections.abc import Mapping, Sequence
@@ -36,7 +38,9 @@ from llc_dynamics.support import (
 
 @dataclass(frozen=True, slots=True)
 class TrainingConfig:
+    project_root: Path
     data_directory: Path
+    dataset_manifest: Path
     file_pattern: str
     split_directories: Mapping[str, str]
     epochs: int
@@ -63,6 +67,7 @@ class TrainingConfig:
             raise TypeError("config.training must be a mapping")
         expected = {
             "data_directory",
+            "dataset_manifest",
             "file_pattern",
             "split_directories",
             "epochs",
@@ -79,6 +84,9 @@ class TrainingConfig:
             raise TypeError("project_root must be a pathlib.Path")
         data_directory = _safe_project_path(
             project_root, raw["data_directory"], name="training.data_directory"
+        )
+        dataset_manifest = _safe_project_path(
+            project_root, raw["dataset_manifest"], name="training.dataset_manifest"
         )
         pattern = raw["file_pattern"]
         if not isinstance(pattern, str) or not pattern or Path(pattern).name != pattern:
@@ -117,7 +125,9 @@ class TrainingConfig:
         if clip is not None:
             clip = _positive_float(clip, "training.gradient_clip_norm")
         return cls(
+            project_root=project_root.resolve(),
             data_directory=data_directory,
+            dataset_manifest=dataset_manifest,
             file_pattern=pattern,
             split_directories=parsed_splits,
             epochs=_positive_int(raw["epochs"], "training.epochs"),
@@ -144,6 +154,14 @@ class TrainingResult:
     global_step: int
     final_metrics: Mapping[str, float]
     checkpoint_directory: Path
+    selected_checkpoint: Path
+    selected_epoch: int
+
+
+@dataclass(frozen=True, slots=True)
+class LoadedTrainingDataset:
+    trajectories: Mapping[str, tuple[MATLABTrajectory, ...]]
+    identity: Mapping[str, Any]
 
 
 def train_from_config(
@@ -153,9 +171,28 @@ def train_from_config(
 
     training = TrainingConfig.from_mapping(root_config, project_root=project_root)
     _seed_everything(training.seed)
-    trajectories = load_trajectory_splits(root_config, training=training)
+    dataset = load_training_dataset(root_config, training=training)
+    trajectories = dataset.trajectories
     normalization = NormalizationConfig.from_mapping(root_config)
-    if normalization.state_scales is None:
+    manager = CheckpointManager(
+        CheckpointConfig.from_mapping(root_config, project_root=project_root)
+    )
+    last_path = manager.config.directory / "last.ckpt"
+    if training.resume_last and last_path.is_file():
+        saved_run_config = manager.read_run_config(last_path)
+        saved_normalization = NormalizationConfig.from_mapping(saved_run_config)
+        if saved_normalization.state_scales is None:
+            raise ValueError("checkpoint normalization state scales are unresolved")
+        requested_normalization = normalization.as_mapping()
+        if normalization.state_scales is None:
+            requested_normalization["state_scales"] = list(
+                saved_normalization.state_scales
+            )
+        if requested_normalization != saved_normalization.as_mapping():
+            raise ValueError("checkpoint normalization policy is incompatible")
+        normalizer = saved_normalization.build(dtype=_model_dtype(root_config))
+        resolved_normalization = saved_normalization
+    elif normalization.state_scales is None:
         normalizer = fit_training_normalizer(
             normalization, trajectories["train"], dtype=_model_dtype(root_config)
         )
@@ -166,6 +203,7 @@ def train_from_config(
 
     run_config = copy.deepcopy(dict(root_config))
     run_config["normalization"] = resolved_normalization.as_mapping()
+    run_config["dataset_identity"] = copy.deepcopy(dict(dataset.identity))
     model = build_neural_ode(run_config)
     device = model.device
     optimizer = torch.optim.AdamW(
@@ -184,12 +222,8 @@ def train_from_config(
         )
         for role, items in trajectories.items()
     }
-    manager = CheckpointManager(
-        CheckpointConfig.from_mapping(run_config, project_root=project_root)
-    )
     start_epoch = 0
     global_step = 0
-    last_path = manager.config.directory / "last.ckpt"
     if training.resume_last and last_path.is_file():
         metadata = manager.load_last(
             model=model,
@@ -242,6 +276,15 @@ def train_from_config(
             flush=True,
         )
 
+    selected_checkpoint = manager.best_checkpoint_path()
+    selected = manager.load(
+        selected_checkpoint,
+        model=model,
+        optimizer=optimizer,
+        expected_run_config=run_config,
+        map_location=device,
+        restore_rng=False,
+    )
     test_mse, _ = run_epoch(
         model=model,
         loader=loaders["test"],
@@ -249,14 +292,76 @@ def train_from_config(
         loss_function=loss_function,
         device=device,
     )
+    final_metrics["selected_val_rollout_mse"] = selected.metrics[
+        "val_rollout_mse"
+    ]
     final_metrics["test_rollout_mse"] = test_mse
-    print(f"test_rollout_mse={test_mse:.6e}", flush=True)
+    print(
+        f"test_rollout_mse={test_mse:.6e} selected_epoch={selected.epoch + 1} "
+        f"checkpoint={selected_checkpoint}",
+        flush=True,
+    )
     return TrainingResult(
         start_epoch=start_epoch,
         completed_epochs=training.epochs - start_epoch,
         global_step=global_step,
         final_metrics=final_metrics,
         checkpoint_directory=manager.config.directory,
+        selected_checkpoint=selected_checkpoint,
+        selected_epoch=selected.epoch,
+    )
+
+
+def load_training_dataset(
+    root_config: Mapping[str, Any], *, training: TrainingConfig
+) -> LoadedTrainingDataset:
+    """Load the exact formal split declared by the generation manifest."""
+
+    trajectories = load_trajectory_splits(root_config, training=training)
+    expected, manifest_digest = _read_dataset_manifest(training)
+    identity_splits: dict[str, list[dict[str, str]]] = {}
+    for role in ("train", "validation", "test"):
+        actual = {item.trajectory_id: item for item in trajectories[role]}
+        expected_for_role = expected[role]
+        missing = sorted(set(expected_for_role).difference(actual))
+        unexpected = sorted(set(actual).difference(expected_for_role))
+        if missing or unexpected:
+            raise ValueError(
+                f"{role} split does not match dataset manifest; "
+                f"missing={missing}, unexpected={unexpected}"
+            )
+        entries: list[dict[str, str]] = []
+        split_root = (
+            training.data_directory / training.split_directories[role]
+        ).resolve()
+        for trajectory_id in sorted(expected_for_role):
+            item = actual[trajectory_id]
+            relative_path = item.source_path.resolve().relative_to(
+                training.data_directory
+            )
+            expected_group = expected_for_role[trajectory_id]
+            relative_to_split = item.source_path.resolve().relative_to(split_root)
+            if not relative_to_split.parts or relative_to_split.parts[0] != expected_group:
+                raise ValueError(
+                    f"trajectory {trajectory_id!r} must be under "
+                    f"{role}/{expected_group}"
+                )
+            entries.append(
+                {
+                    "trajectory_id": trajectory_id,
+                    "excitation_group": expected_group,
+                    "relative_path": relative_path.as_posix(),
+                    "sha256": _sha256_file(item.source_path),
+                }
+            )
+        identity_splits[role] = entries
+    return LoadedTrainingDataset(
+        trajectories=trajectories,
+        identity={
+            "schema_version": "llc-training-dataset-identity-v1",
+            "manifest_sha256": manifest_digest,
+            "splits": identity_splits,
+        },
     )
 
 
@@ -346,12 +451,23 @@ def run_epoch(
                 optimizer.zero_grad(set_to_none=True)
             predicted = rollout_batch(model, batch, solver)
             loss = loss_function(predicted, batch.target_z)
+            context_description = _batch_description(batch)
+            if not bool(torch.isfinite(loss)):
+                raise FloatingPointError(
+                    f"nonfinite rollout loss for {context_description}"
+                )
             if training:
                 loss.backward()
-                if gradient_clip_norm is not None:
+                try:
                     torch.nn.utils.clip_grad_norm_(
-                        model.parameters(), gradient_clip_norm
+                        model.parameters(),
+                        math.inf if gradient_clip_norm is None else gradient_clip_norm,
+                        error_if_nonfinite=True,
                     )
+                except RuntimeError as error:
+                    raise FloatingPointError(
+                        f"nonfinite training gradient for {context_description}"
+                    ) from error
                 optimizer.step()
                 steps += 1
             element_count = batch.target_z[:, 1:].numel()
@@ -360,6 +476,103 @@ def run_epoch(
     if total_elements == 0:
         raise ValueError("data loader produced no rollout targets")
     return total_squared_error / total_elements, steps
+
+
+def _read_dataset_manifest(
+    training: TrainingConfig,
+) -> tuple[dict[str, dict[str, str]], str]:
+    if not training.dataset_manifest.is_file():
+        raise FileNotFoundError(
+            f"dataset manifest does not exist: {training.dataset_manifest}"
+        )
+    raw_bytes = training.dataset_manifest.read_bytes()
+    try:
+        document = json.loads(raw_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("dataset manifest is not valid UTF-8 JSON") from error
+    if not isinstance(document, Mapping):
+        raise TypeError("dataset manifest root must be a mapping")
+    if document.get("schema_version") != (
+        "llc-continuous-random-excitation-data-generation-v1"
+    ):
+        raise ValueError("dataset manifest has an unsupported schema_version")
+    output_directory = document.get("output_directory")
+    if not isinstance(output_directory, str) or not output_directory:
+        raise ValueError("dataset manifest output_directory is invalid")
+    manifest_output = _safe_project_path(
+        training.project_root,
+        output_directory,
+        name="dataset manifest output_directory",
+    )
+    if manifest_output != training.data_directory:
+        raise ValueError(
+            "dataset manifest output_directory does not match training.data_directory"
+        )
+    conditions = document.get("conditions")
+    if not isinstance(conditions, list):
+        raise TypeError("dataset manifest conditions must be a list")
+    expected: dict[str, dict[str, str]] = {
+        "train": {},
+        "validation": {},
+        "test": {},
+    }
+    for index, condition in enumerate(conditions):
+        if not isinstance(condition, Mapping):
+            raise TypeError(f"dataset manifest conditions[{index}] must be a mapping")
+        trajectory_id = condition.get("trajectory_id")
+        role = condition.get("dataset_role")
+        group = condition.get("excitation_group")
+        if not isinstance(trajectory_id, str) or not trajectory_id:
+            raise ValueError(f"conditions[{index}].trajectory_id is invalid")
+        if role not in expected:
+            raise ValueError(f"conditions[{index}].dataset_role is invalid")
+        if group not in {"vin_only", "reference_only", "both"}:
+            raise ValueError(f"conditions[{index}].excitation_group is invalid")
+        if any(trajectory_id in values for values in expected.values()):
+            raise ValueError(f"duplicate manifest trajectory_id: {trajectory_id!r}")
+        expected[role][trajectory_id] = group
+    expected_counts = {"train": 80, "validation": 20, "test": 20}
+    actual_counts = {role: len(values) for role, values in expected.items()}
+    if actual_counts != expected_counts:
+        raise ValueError(
+            f"formal dataset manifest counts must be {expected_counts}; got {actual_counts}"
+        )
+    expected_groups = {
+        "train": {"vin_only": 20, "reference_only": 20, "both": 40},
+        "validation": {"vin_only": 5, "reference_only": 5, "both": 10},
+        "test": {"vin_only": 5, "reference_only": 5, "both": 10},
+    }
+    actual_groups = {
+        role: {
+            group: sum(value == group for value in values.values())
+            for group in ("vin_only", "reference_only", "both")
+        }
+        for role, values in expected.items()
+    }
+    if actual_groups != expected_groups:
+        raise ValueError(
+            "formal dataset manifest excitation groups do not match the "
+            f"80/20/20 plan: {actual_groups}"
+        )
+    return expected, hashlib.sha256(raw_bytes).hexdigest()
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _batch_description(batch: Any) -> str:
+    windows = ", ".join(
+        f"{identifier}[{int(start)}]"
+        for identifier, start in zip(
+            batch.trajectory_ids, batch.start_indices.tolist(), strict=True
+        )
+    )
+    return f"windows: {windows}"
 
 
 def _make_loader(
