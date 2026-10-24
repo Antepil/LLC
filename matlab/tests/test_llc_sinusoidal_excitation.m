@@ -46,12 +46,12 @@ function testFormalContinuousRandomConfigurationMatchesScale(testCase)
                 'llc-continuous-random-excitation-data-generation-v1');
     verifyEqual(testCase, config.mat_file_version, '-v7');
     verifyEqual(testCase, config.fixed_load_ohm, 2.304, 'AbsTol', 1e-12);
-    verifyEqual(testCase, config.simulation_stop_time_s, 0.205, ...
+    verifyEqual(testCase, config.simulation_stop_time_s, 0.045, ...
                 'AbsTol', 1e-15);
     verifyEqual(testCase, config.excitation_timing.start_time_s, 0.005);
     verifyEqual(testCase, config.excitation_timing.segment_duration_s, 0.020);
     verifyEqual(testCase, config.excitation_timing.transition_time_s, 0.002);
-    verifyEqual(testCase, config.excitation_timing.segment_count, 10);
+    verifyEqual(testCase, config.excitation_timing.segment_count, 2);
     verifyEqual(testCase, config.random_excitation.frequency_choices_hz, ...
                 [100; 300; 1000]);
     verifyEqual(testCase, config.random_excitation.vin.center_range, [380; 420]);
@@ -60,23 +60,34 @@ function testFormalContinuousRandomConfigurationMatchesScale(testCase)
                 [45.6; 50.4]);
     verifyEqual(testCase, config.random_excitation.reference.amplitude_range, ...
                 [1.2; 2.4]);
-    verifyNumElements(testCase, config.conditions, 24);
+    verifyNumElements(testCase, config.conditions, 120);
     roles = string({config.conditions.dataset_role});
     groups = string({config.conditions.excitation_group});
-    verifyEqual(testCase, nnz(roles == "train"), 16);
-    verifyEqual(testCase, nnz(roles == "validation"), 4);
-    verifyEqual(testCase, nnz(roles == "test"), 4);
-    verifyEqual(testCase, nnz(groups == "vin_only"), 6);
-    verifyEqual(testCase, nnz(groups == "reference_only"), 6);
-    verifyEqual(testCase, nnz(groups == "both"), 12);
+    verifyEqual(testCase, nnz(roles == "train"), 80);
+    verifyEqual(testCase, nnz(roles == "validation"), 20);
+    verifyEqual(testCase, nnz(roles == "test"), 20);
+    expectedCrossCounts = [20, 20, 40; 5, 5, 10; 5, 5, 10];
+    roleNames = ["train", "validation", "test"];
+    groupNames = ["vin_only", "reference_only", "both"];
+    for roleIndex = 1:numel(roleNames)
+        for groupIndex = 1:numel(groupNames)
+            verifyEqual(testCase, nnz(roles == roleNames(roleIndex) & ...
+                groups == groupNames(groupIndex)), ...
+                expectedCrossCounts(roleIndex, groupIndex));
+        end
+    end
+    identifiers = string({config.conditions.trajectory_id});
+    verifyEqual(testCase, numel(unique(identifiers)), 120);
     seeds = [config.conditions.random_seed];
-    verifyEqual(testCase, numel(unique(seeds)), 24);
+    verifyEqual(testCase, numel(unique(seeds)), 120);
     verifyTrue(testCase, all(seeds == round(seeds) & seeds >= 0));
+    verifyEqual(testCase, config.excitation_timing.segment_count * ...
+                numel(config.conditions), 240);
     pointsPerTrajectory = config.simulation_stop_time_s * ...
         config.sampling.reference_frequency_hz * ...
         config.sampling.intervals_per_cycle + 1;
     verifyEqual(testCase, pointsPerTrajectory * numel(config.conditions), ...
-                54120024, 'AbsTol', 1e-8);
+                59400120, 'AbsTol', 1e-8);
     verifyFalse(testCase, contains(config.output_directory, 'screening'));
 end
 
@@ -361,7 +372,8 @@ function testFormalContinuousRandomGeneratorSmoke(testCase)
     sourceConfig.excitation_timing.segment_duration_s = 0.003;
     sourceConfig.excitation_timing.transition_time_s = 0.0005;
     sourceConfig.excitation_timing.segment_count = 1;
-    sourceConfig.conditions = sourceConfig.conditions(9);
+    groups = string({sourceConfig.conditions.excitation_group});
+    sourceConfig.conditions = sourceConfig.conditions(find(groups == "both", 1));
     writeJson(configFile, sourceConfig);
 
     [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...

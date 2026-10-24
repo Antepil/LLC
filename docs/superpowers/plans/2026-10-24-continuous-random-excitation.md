@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a deterministic, continuously joined, randomly refreshed Vin/Vref dataset configuration with about 54.12 million fixed-grid points while preserving existing generators.
+**Goal:** Add a deterministic, continuously joined, randomly refreshed Vin/Vref dataset configuration with 59,400,120 fixed-grid points while preserving existing generators.
 
 **Architecture:** A standalone builder realizes seeded segment targets, and the existing excitation evaluator gains a backward-compatible segmented profile. The independent sinusoidal generator dispatches by configuration schema and records formal-dataset metadata without changing the shared Simulink model.
 
@@ -16,7 +16,7 @@
 - Network inputs remain four states, four applied gates, and Vin; Vref is excluded.
 - Preserve the existing fixed-condition and fixed-sinusoid workflows.
 - Formal data files use MAT v7 and are not committed; v7.3 is unavailable on the repository's WSL UNC path.
-- Each formal trajectory is 205 ms with 5 ms startup, ten 20 ms segments, and 2 ms transitions.
+- Each formal trajectory is 45 ms with 5 ms startup, two 20 ms segments, and 2 ms transitions.
 
 ## Review Focus
 
@@ -107,7 +107,7 @@ Expected: all non-simulation tests in `test_llc_sinusoidal_excitation` pass.
 
 Commit the builder, evaluator, and unit tests.
 
-### Task 3: Add the formal 24-trajectory dataset
+### Task 3: Add the formal 120-trajectory dataset
 
 **Files:**
 - Create: `configs/matlab/sinusoidal_excitation/continuous_random_data_generation.json`
@@ -117,11 +117,11 @@ Commit the builder, evaluator, and unit tests.
 
 **Interfaces:**
 - Consumes: formal schema `llc-continuous-random-excitation-data-generation-v1`
-- Produces: 24 seeded conditions, deterministic realized excitation, formal trajectory schema and split/seed metadata, MAT v7 files
+- Produces: 120 seeded conditions, deterministic realized excitation, formal trajectory schema and split/seed metadata, MAT v7 files
 
 - [ ] **Step 1: Write failing formal-configuration tests**
 
-Assert 24 trajectories, 16/4/4 split, 6/6/12 group counts, unique valid seeds, exact timing/ranges, and 54,120,024 total state-grid points including endpoints.
+Assert 120 trajectories, 80/20/20 split, 30/30/60 group counts with the approved split/group cross-counts, unique valid seeds, exact timing/ranges, 240 total excitation segments, and 59,400,120 total state-grid points including endpoints.
 
 - [ ] **Step 2: Run configuration tests and verify RED**
 
@@ -129,7 +129,7 @@ Expected: FAIL because the formal configuration does not exist.
 
 - [ ] **Step 3: Add the formal configuration**
 
-Create the 24 explicit conditions and shared randomization/timing settings. Use output directory `data/raw/llc_sinusoidal_excitation/continuous_random`.
+Create the 120 explicit conditions and shared randomization/timing settings. Use output directory `data/raw/llc_sinusoidal_excitation/continuous_random`.
 
 - [ ] **Step 4: Extend generator validation and dispatch**
 

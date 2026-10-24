@@ -6,13 +6,13 @@ Build a formal LLC training-data configuration that follows the paper's pattern 
 
 ## Goals
 
-- Generate 24 closed-loop trajectories with a fixed 2.304 ohm load.
-- Run each trajectory for 205 ms: 5 ms startup followed by ten 20 ms excitation segments.
+- Generate 120 closed-loop trajectories with a fixed 2.304 ohm load.
+- Run each trajectory for 45 ms: 5 ms startup followed by two 20 ms excitation segments.
 - Smooth each parameter update over the first 2 ms of its segment.
 - Keep excitation value and first derivative continuous at every segment boundary.
 - Use deterministic per-trajectory random seeds and save every realized segment parameter.
 - Keep the neural-network contract at four states, four applied gates, and Vin. Save Vref only as a control/audit signal.
-- Produce approximately 54.12 million state-grid points at the existing 11 MHz fixed-grid rate.
+- Produce 59,400,120 state-grid points at the existing 11 MHz fixed-grid rate.
 
 ## Non-goals
 
@@ -23,14 +23,14 @@ Build a formal LLC training-data configuration that follows the paper's pattern 
 
 ## Dataset layout
 
-The formal configuration contains 24 trajectories:
+The formal configuration contains 120 trajectories:
 
 | Excitation group | Train | Validation | Test | Total |
 |---|---:|---:|---:|---:|
-| Vin only | 4 | 1 | 1 | 6 |
-| Vref only | 4 | 1 | 1 | 6 |
-| Vin and Vref | 8 | 2 | 2 | 12 |
-| Total | 16 | 4 | 4 | 24 |
+| Vin only | 20 | 5 | 5 | 30 |
+| Vref only | 20 | 5 | 5 | 30 |
+| Vin and Vref | 40 | 10 | 10 | 60 |
+| Total | 80 | 20 | 20 | 120 |
 
 Each trajectory has a unique stored integer seed. Random draws use a local stream so dataset construction does not alter MATLAB's global random state.
 
@@ -79,7 +79,7 @@ The shared initializer must allow the old event-driven open-loop model to run wi
 
 - Unit tests verify deterministic draws, configured ranges, group behavior, and preservation of the global random stream.
 - Evaluator tests verify value and numerical first-derivative continuity around every update boundary.
-- Configuration tests verify the 16/4/4 split, group counts, timing, unique seeds, and expected fixed-grid point count.
+- Configuration tests verify the 80/20/20 split, split/group cross-counts, timing, 120 unique seeds, 240 excitation segments, and expected fixed-grid point count.
 - A shortened simulation smoke test exercises the formal schema through the shared Simulink model and checks saved metadata and the nine-input network contract.
 - Existing screening and project tests remain green.
 
