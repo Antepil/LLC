@@ -392,13 +392,15 @@ function testControllerStateCanBeReconstructedFromReferenceWaveform(testCase)
         source.initial_gate_values, source.gate_event_times_s, source.gate_values_after, ...
         source.times_s, source.control_values, ...
         reference, control, 20e-6, solver.event_time_tolerance_s);
-    historical = source.gate_event_times_s <= 20e-6;
+    historical = source.gate_event_times_s < 20e-6;
     verifyEqual(testCase, replay.gate_event_times_s, ...
                 source.gate_event_times_s(historical), 'AbsTol', 1e-12);
     verifyEqual(testCase, replay.gate_values_after, source.gate_values_after(historical, :));
-    expectedControl = source.control_values(times == 20e-6, :);
+    beforeHandoff = find(times < 20e-6, 1, 'last');
+    expectedControl = source.control_values(beforeHandoff, :);
     verifyEqual(testCase, replay.final_state.frequency_hz, expectedControl(1), 'AbsTol', 1e-9);
     verifyEqual(testCase, replay.final_state.integral_v_s, expectedControl(5), 'AbsTol', 1e-14);
+    verifyEqual(testCase, replay.final_state.next_control_time_s, 20e-6, 'AbsTol', 1e-15);
 end
 
 function testControllerReplayOrdersCoincidentEdgeBeforeControlUpdate(testCase)
@@ -417,10 +419,11 @@ function testControllerReplayOrdersCoincidentEdgeBeforeControlUpdate(testCase)
     replay = llc_reconstruct_closed_loop_controller(times, source.states(:, 4), ...
         source.initial_gate_values, source.gate_event_times_s, source.gate_values_after, ...
         source.times_s, source.control_values, reference, control, 10.2e-6, 1e-12);
-    verifyEqual(testCase, replay.gate_event_times_s(end-1:end), [10e-6; 10.2e-6], ...
-                'AbsTol', 1e-12);
-    verifyEqual(testCase, replay.gate_values_after(end-1, :), uint8([0 0 0 0]));
-    verifyEqual(testCase, replay.gate_values_after(end, :), uint8([0 1 1 0]));
+    verifyEqual(testCase, replay.gate_event_times_s(end), 10e-6, 'AbsTol', 1e-12);
+    verifyEqual(testCase, replay.gate_values_after(end, :), uint8([0 0 0 0]));
+    verifyEqual(testCase, replay.final_state.pending_on_time_s, 10.2e-6, ...
+        'AbsTol', 1e-12);
+    verifyEqual(testCase, replay.final_state.pending_pair, 2);
     verifyEqual(testCase, replay.final_state.frequency_hz, ...
                 source.control_values(3, 1), 'AbsTol', 1e-6);
 end

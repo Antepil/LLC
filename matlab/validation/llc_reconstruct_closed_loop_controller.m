@@ -19,7 +19,7 @@ function result = llc_reconstruct_closed_loop_controller( ...
     gatesAfter = zeros(0, 4, 'uint8');
     while true
         nextEvent = llc_closed_loop_controller_next_event(state);
-        if nextEvent > stopTimeS
+        if nextEvent >= stopTimeS
             break;
         end
         measured = interp1(times, voltage, min(max(nextEvent, times(1)), times(end)), 'linear');
@@ -35,7 +35,7 @@ function result = llc_reconstruct_closed_loop_controller( ...
     state = advancePhaseToStop(state, stopTimeS);
     expectedTimes = double(expectedEventTimesS(:));
     expectedValues = uint8(expectedGatesAfter);
-    selected = expectedTimes <= stopTimeS;
+    selected = expectedTimes < stopTimeS;
     expectedTimes = expectedTimes(selected);
     expectedValues = expectedValues(selected, :);
     if numel(expectedTimes) ~= numel(eventTimes) || ...
@@ -88,7 +88,7 @@ function validateFutureSchedule(state, voltageTimes, voltage, expectedTimesS, ..
             verifiedPostControlGate = nextEvent > nextControlTime;
         end
     end
-    future = find(expectedTimes > stopTimeS);
+    future = find(expectedTimes >= stopTimeS);
     if numel(future) < numel(actualTimes)
         error('llc:ControllerReplayMismatch', ...
               'Reference gate log lacks the required post-handoff scheduler evidence.');
@@ -115,13 +115,17 @@ function validateControlState( ...
         error('llc:InvalidControllerReplay', ...
               'Reference controller log does not cover the handoff time.');
     end
-    lastControlTime = state.next_control_time_s - control.control_period_s;
-    controlAtHandoff = abs(lastControlTime - stopTimeS) <= ...
-        max(1e-14, 32 * eps(max(stopTimeS, control.control_period_s)));
-    postHandoff = find(expectedTimes >= stopTimeS & ...
-                       expectedTimes <= stopTimeS + max(timeTolerance, 1e-12), 1, 'last');
-    if controlAtHandoff && ~isempty(postHandoff)
-        expected = expectedValues(postHandoff, :);
+    boundaryTolerance = max(1e-14, ...
+        32 * eps(max(stopTimeS, control.control_period_s)));
+    controlDueAtHandoff = ...
+        abs(state.next_control_time_s - stopTimeS) <= boundaryTolerance;
+    beforeHandoff = find(expectedTimes < stopTimeS, 1, 'last');
+    if controlDueAtHandoff
+        if isempty(beforeHandoff)
+            error('llc:InvalidControllerReplay', ...
+                  'Controller log lacks a pre-handoff sample for a due boundary event.');
+        end
+        expected = expectedValues(beforeHandoff, :);
     else
         expected = interp1(expectedTimes, expectedValues, stopTimeS, 'previous');
     end
