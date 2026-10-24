@@ -52,7 +52,12 @@ python -m unittest discover -s tests -v
 `TrajectoryWindowDataset` 按 `configs/base.yaml` 的 `window` 配置从已经完成集合划分的完整轨迹
 惰性生成定长窗口。每个窗口只用真实起始状态初始化，保留准确门极事件和节点 Vin；起点事件
 决定初始门极，终点事件不进入当前窗口。`collate_rollout_windows` 堆叠定长状态和 Vin，同时将
-各窗口数量不同的门极事件保留为独立张量。训练循环和事件感知 ODE 求解器尚未实现。
+各窗口数量不同的门极事件保留为独立张量。
+
+`rollout_window` 和 `rollout_batch` 使用可微的固定步长 RK4 生成归一化状态序列。求解器在准确
+门极事件处分段，事件前的分段始终使用旧门极；Vin 在每个 RK4 阶段按相邻状态节点线性插值。
+`solver.max_step_tau` 是归一化时间中的最大子步长，所有分段都会细分到不超过该值。batch 中
+不同事件表的窗口逐个积分后堆叠；当前训练循环尚未实现。
 
 ## 训练检查点
 
