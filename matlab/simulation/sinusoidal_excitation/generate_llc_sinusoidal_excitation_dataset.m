@@ -1,5 +1,5 @@
 function [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
-        hardwareConfigFile, generationConfigFile, resumeExisting)
+        hardwareConfigFile, generationConfigFile, resumeExisting, conditionIndices)
     % GENERATE_LLC_SINUSOIDAL_EXCITATION_DATASET Generate dynamic Vin/Vref data.
     matlabRoot = fileparts(fileparts(fileparts(mfilename('fullpath'))));
     projectRoot = fileparts(matlabRoot);
@@ -15,6 +15,9 @@ function [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
     if nargin < 3 || isempty(resumeExisting)
         resumeExisting = false;
     end
+    if nargin < 4
+        conditionIndices = [];
+    end
     if ~islogical(resumeExisting) || ~isscalar(resumeExisting)
         error('llc:InvalidArgument', 'resumeExisting must be a logical scalar.');
     end
@@ -23,6 +26,8 @@ function [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
     generation = llc_read_json(generationConfigFile);
     validateHardware(hardware);
     validateGeneration(generation);
+    conditionIndices = selectConditionIndices( ...
+        conditionIndices, numel(generation.conditions));
     trajectorySchema = outputSchema(generation);
     formalGeneration = isFormalGeneration(generation);
     modelFile = resolveProjectPath(projectRoot, generation.model_file);
@@ -38,16 +43,17 @@ function [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
     load_system(modelFile);
     closeModel = onCleanup(@()close_system(modelName, 0));
     workspace = get_param(modelName, 'ModelWorkspace');
-    files = strings(numel(generation.conditions), 1);
+    files = strings(numel(conditionIndices), 1);
     entryTemplate = struct('trajectory_id', '', 'success', false, 'skipped', false, ...
                            'output_file', '', 'error_identifier', '', 'error_message', '');
-    entries = repmat(entryTemplate, numel(generation.conditions), 1);
+    entries = repmat(entryTemplate, numel(conditionIndices), 1);
 
-    for index = 1:numel(generation.conditions)
+    for workIndex = 1:numel(conditionIndices)
+        index = conditionIndices(workIndex);
         condition = generation.conditions(index);
         requestSignature = buildGenerationRequestSignature( ...
             hardware, generation, condition);
-        entries(index).trajectory_id = condition.trajectory_id;
+        entries(workIndex).trajectory_id = condition.trajectory_id;
         conditionDirectory = outputDirectory;
         if formalGeneration
             conditionDirectory = fullfile(outputDirectory, ...
@@ -81,10 +87,10 @@ function [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
                     error('llc:InvalidExistingOutput', ...
                           'Existing trajectory does not match the requested condition: %s', outputFile);
                 end
-                files(index) = string(outputFile);
-                entries(index).success = true;
-                entries(index).skipped = true;
-                entries(index).output_file = outputFile;
+                files(workIndex) = string(outputFile);
+                entries(workIndex).success = true;
+                entries(workIndex).skipped = true;
+                entries(workIndex).output_file = outputFile;
                 continue;
             end
 
@@ -190,12 +196,12 @@ function [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
             else
                 save(outputFile, '-struct', 'trajectory', '-v7');
             end
-            files(index) = string(outputFile);
-            entries(index).success = true;
-            entries(index).output_file = outputFile;
+            files(workIndex) = string(outputFile);
+            entries(workIndex).success = true;
+            entries(workIndex).output_file = outputFile;
         catch exception
-            entries(index).error_identifier = exception.identifier;
-            entries(index).error_message = exception.message;
+            entries(workIndex).error_identifier = exception.identifier;
+            entries(workIndex).error_message = exception.message;
             warning('llc:ConditionFailed', 'Condition %s failed:\n%s', ...
                     condition.trajectory_id, getReport(exception, 'extended', 'hyperlinks', 'off'));
         end
@@ -205,6 +211,23 @@ function [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
                      'failed_count', nnz(~[entries.success]), ...
                      'skipped_count', nnz([entries.skipped]));
     clear closeModel;
+end
+
+function indices = selectConditionIndices(requested, conditionCount)
+    if isempty(requested)
+        indices = (1:conditionCount).';
+        return;
+    end
+    valid = isnumeric(requested) && isreal(requested) && isvector(requested) && ...
+        all(isfinite(requested), 'all') && ...
+        all(requested == fix(requested), 'all') && ...
+        all(requested >= 1 & requested <= conditionCount, 'all') && ...
+        numel(unique(requested)) == numel(requested);
+    if ~valid
+        error('llc:InvalidArgument', ...
+              'conditionIndices must contain unique valid condition indices.');
+    end
+    indices = double(requested(:));
 end
 
 function excitation = buildExcitation(generation, condition)
