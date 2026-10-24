@@ -688,21 +688,21 @@ function file = writeModelFixture(testCase)
     file = [tempname, '.mat'];
     testCase.addTeardown(@()deleteIfPresent(file));
     model = gateDrivenModel;
-    schema_version = 'llc-neural-ode-matlab-export-v1'; %#ok<NASGU>
-    network = model.network; %#ok<NASGU>
-    state_names = {'i_Lr', 'v_Cr', 'i_Lm', 'v_o'}; %#ok<NASGU>
-    gate_names = {'Q1_A_high', 'Q2_A_low', 'Q3_B_high', 'Q4_B_low'}; %#ok<NASGU>
+    schema_version = 'llc-neural-ode-matlab-export-v1';
+    network = model.network;
+    state_names = {'i_Lr', 'v_Cr', 'i_Lm', 'v_o'};
+    gate_names = {'Q1_A_high', 'Q2_A_low', 'Q3_B_high', 'Q4_B_low'};
     network_input_order = {'z_i_Lr', 'z_v_Cr', 'z_i_Lm', 'z_v_o', ...
-        'Q1_A_high', 'Q2_A_low', 'Q3_B_high', 'Q4_B_low', 'Vin_over_V_ref'}; %#ok<NASGU>
+        'Q1_A_high', 'Q2_A_low', 'Q3_B_high', 'Q4_B_low', 'Vin_over_V_ref'};
     network_output_order = {'dz_i_Lr_dtau', 'dz_v_Cr_dtau', ...
-        'dz_i_Lm_dtau', 'dz_v_o_dtau'}; %#ok<NASGU>
-    state_scales = model.state_scales; %#ok<NASGU>
-    vin_reference_v = model.vin_reference_v; %#ok<NASGU>
-    time_reference_s = model.time_reference_s; %#ok<NASGU>
-    load_resistance_ohm = model.load_resistance_ohm; %#ok<NASGU>
-    dtype = 'float64'; %#ok<NASGU>
-    consistency_inputs = [zeros(1, 8), 1; zeros(1, 4), 1, 0, 0, 0, 1]; %#ok<NASGU>
-    consistency_outputs = consistency_inputs * network.weights{1}.' + network.biases{1}.'; %#ok<NASGU>
+        'dz_i_Lm_dtau', 'dz_v_o_dtau'};
+    state_scales = model.state_scales;
+    vin_reference_v = model.vin_reference_v;
+    time_reference_s = model.time_reference_s;
+    load_resistance_ohm = model.load_resistance_ohm;
+    dtype = 'float64';
+    consistency_inputs = [zeros(1, 8), 1; zeros(1, 4), 1, 0, 0, 0, 1];
+    consistency_outputs = consistency_inputs * network.weights{1}.' + network.biases{1}.';
     save(file, 'schema_version', 'network', 'state_names', 'gate_names', ...
          'network_input_order', 'network_output_order', 'state_scales', ...
          'vin_reference_v', 'time_reference_s', 'load_resistance_ohm', ...
