@@ -162,6 +162,59 @@ Vin 支持常量和线性插值序列：
 结果再确定。配置中的收敛复算目前用于回放实验，冷/热独立闭环尚不自动做第二套容差复算。该流程也不
 构成器件额定值、ZVS 或硬件安全认证。
 
+### Simulink 双分支波形对照
+
+`models/llc_neural_ode_comparison.slx` 把参考 LLC 电路和 Neural ODE 放在同一个 Simulink 模型中。
+两条支路只共享 Vin 和 Vref；参考支路的 `ClosedLoopPFM` 使用参考电路的 `v_o`，
+`NeuralClosedLoopPFM` 只使用 Neural ODE 的 `v_o`，所以两边的滤波器、PI 状态、PFM 相位和事件队列
+彼此独立。模型记录以下同一时间轴信号：
+
+- `reference_states` / `predicted_states`：`i_Lr/v_Cr/i_Lm/v_o`；
+- `state_error`：参考状态减 Neural ODE 状态；
+- `reference_gate_values` / `neural_gate_values`：各自四路实际门极；
+- `reference_control_values` / `neural_control_values`：频率、滤波电压、爬升后参考、电压误差和积分量。
+
+已提交的 `.slx` 可由构建器重新生成。构建器以 `llc_full_bridge_closed_loop.slx` 为参考支路，不会改写它；
+如果目标文件已存在则原样返回。需要强制重建时，应先把旧目标文件移到可恢复位置，再运行：
+
+```matlab
+addpath('matlab');
+setup_paths;
+modelFile = build_llc_neural_ode_comparison_model( ...
+    fullfile(pwd, 'matlab', 'models'));
+open_system(modelFile);
+```
+
+验证配置中的 `paths.simulink_comparison_model_file` 必须指向该模型。准备好真实
+`artifacts/models/llc_neural_ode/model_export.mat` 后，可按实验 ID 运行冷启动或预热实验：
+
+```matlab
+addpath('matlab');
+setup_paths;
+
+[cold, coldContext] = llc_run_neural_ode_simulink_comparison( ...
+    fullfile(pwd, 'configs', 'matlab', 'neural_ode_validation.json'), ...
+    'cold_start_closed_loop_baseline');
+
+[warm, warmContext] = llc_run_neural_ode_simulink_comparison( ...
+    fullfile(pwd, 'configs', 'matlab', 'neural_ode_validation.json'), ...
+    'warm_start_closed_loop_baseline');
+```
+
+冷启动把两条支路的四状态置零，并分别创建同值的控制器初态。预热启动先只运行参考电路，按配置检查
+周期稳态，再在交接点重建滤波器、PI、参考斜坡进度、PFM 相位和待调度事件；交接状态转为局部时间
+`t=0` 后，参考和 Neural ODE 支路从同一四状态、同值但独立的控制器状态开始。为了验证交接后的调度器，
+预热参考仿真会在交接点后保留足够的控制更新和门极事件；这段审计延伸不改变正式评估时长。
+
+`result` 返回上述对齐波形和控制日志；`context` 返回解析后的模型路径、实验 ID、两支路初态、交接控制器
+状态和稳态判定。入口只接受已启用的 `independent_closed_loop` 实验，缺失文件、占位网络、负载不匹配、
+未稳态预热、日志缺失或日志覆盖不足都会显式报错。保存的 `.slx` 内只有带 `is_placeholder=true` 的占位
+网络，不能脱离入口直接产生有效预测；必须注入由可信 checkpoint 导出的真实模型。
+
+这个 Simulink 后端用于在同一框图中观察闭环波形、门极和控制器分叉，不替代上面的
+`llc_run_neural_ode_validation` 正式报告后端。后者负责门极回放、指标表、图和 MAT 结果持久化；Simulink
+入口目前只返回内存中的波形结构。两者都不自动宣称模型准确，也不构成器件应力、ZVS 或硬件安全认证。
+
 ## 独立的 Vin/Vref 正弦激励数据
 
 正弦激励流程与上述固定工况闭环流程使用同一个

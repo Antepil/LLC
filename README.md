@@ -90,6 +90,11 @@ MATLAB 目录已包含 LLC Simulink 模型、开环原始轨迹入口和闭环 P
 `llc_run_neural_ode_validation` 执行准确门极回放、冷启动和预热交接后的独立闭环对照。配置、信号时间轴、
 运行步骤与产物说明见 [`matlab/README.md`](matlab/README.md#neural-ode-仿真验证)。
 
+仓库同时提供 `matlab/models/llc_neural_ode_comparison.slx`，可在一个 Simulink 图中并行运行参考 LLC
+电路和 Neural ODE。两条支路共享 Vin/Vref，但各自闭合 PI/PFM 反馈，并直接记录状态、门极、控制量和
+四状态误差。配置化的冷启动/预热交接入口、模型重建方法和两种验证后端的区别见
+[`matlab/README.md`](matlab/README.md#simulink-双分支波形对照)。
+
 ### Closed-loop frequency policy
 
 The closed-loop PI has no configured minimum/maximum frequency and no saturation
