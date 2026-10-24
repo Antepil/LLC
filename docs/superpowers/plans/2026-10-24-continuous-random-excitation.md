@@ -15,7 +15,7 @@
 - Fixed load is 2.304 ohm.
 - Network inputs remain four states, four applied gates, and Vin; Vref is excluded.
 - Preserve the existing fixed-condition and fixed-sinusoid workflows.
-- Formal data files use MAT v7.3 and are not committed.
+- Formal data files use MAT v7 and are not committed; v7.3 is unavailable on the repository's WSL UNC path.
 - Each formal trajectory is 205 ms with 5 ms startup, ten 20 ms segments, and 2 ms transitions.
 
 ## Review Focus
@@ -117,7 +117,7 @@ Commit the builder, evaluator, and unit tests.
 
 **Interfaces:**
 - Consumes: formal schema `llc-continuous-random-excitation-data-generation-v1`
-- Produces: 24 seeded conditions, deterministic realized excitation, formal trajectory schema and split/seed metadata, MAT v7.3 files
+- Produces: 24 seeded conditions, deterministic realized excitation, formal trajectory schema and split/seed metadata, MAT v7 files
 
 - [ ] **Step 1: Write failing formal-configuration tests**
 
@@ -133,7 +133,7 @@ Create the 24 explicit conditions and shared randomization/timing settings. Use 
 
 - [ ] **Step 4: Extend generator validation and dispatch**
 
-Accept the existing screening schema unchanged and the new formal schema. Build formal excitations through the new builder, choose the matching output schema, save dataset split/seed/realized segments, validate expected sample count, and use `-v7.3` for formal files.
+Accept the existing screening schema unchanged and the new formal schema. Build formal excitations through the new builder, choose the matching output schema, save dataset split/seed/realized segments, validate expected sample count, and use `-v7` for formal files.
 
 - [ ] **Step 5: Add and run a shortened formal smoke test**
 
@@ -154,4 +154,3 @@ Expected: all tests pass with zero failures and zero incomplete tests.
 - [ ] **Step 8: Commit**
 
 Commit the formal configuration, generator integration, tests, and documentation.
-

@@ -36,6 +36,89 @@ function testScreeningConfigurationIsIndependent(testCase)
     verifyFalse(testCase, contains(config.output_directory, 'llc_closed_loop/train'));
 end
 
+function testFormalContinuousRandomConfigurationMatchesScale(testCase)
+    root = testCase.TestData.projectRoot;
+    configFile = fullfile(root, 'configs', 'matlab', ...
+        'sinusoidal_excitation', 'continuous_random_data_generation.json');
+    config = llc_read_json(configFile);
+
+    verifyEqual(testCase, config.schema_version, ...
+                'llc-continuous-random-excitation-data-generation-v1');
+    verifyEqual(testCase, config.mat_file_version, '-v7');
+    verifyEqual(testCase, config.fixed_load_ohm, 2.304, 'AbsTol', 1e-12);
+    verifyEqual(testCase, config.simulation_stop_time_s, 0.205, ...
+                'AbsTol', 1e-15);
+    verifyEqual(testCase, config.excitation_timing.start_time_s, 0.005);
+    verifyEqual(testCase, config.excitation_timing.segment_duration_s, 0.020);
+    verifyEqual(testCase, config.excitation_timing.transition_time_s, 0.002);
+    verifyEqual(testCase, config.excitation_timing.segment_count, 10);
+    verifyEqual(testCase, config.random_excitation.frequency_choices_hz, ...
+                [100; 300; 1000]);
+    verifyEqual(testCase, config.random_excitation.vin.center_range, [380; 420]);
+    verifyEqual(testCase, config.random_excitation.vin.amplitude_range, [10; 20]);
+    verifyEqual(testCase, config.random_excitation.reference.center_range, ...
+                [45.6; 50.4]);
+    verifyEqual(testCase, config.random_excitation.reference.amplitude_range, ...
+                [1.2; 2.4]);
+    verifyNumElements(testCase, config.conditions, 24);
+    roles = string({config.conditions.dataset_role});
+    groups = string({config.conditions.excitation_group});
+    verifyEqual(testCase, nnz(roles == "train"), 16);
+    verifyEqual(testCase, nnz(roles == "validation"), 4);
+    verifyEqual(testCase, nnz(roles == "test"), 4);
+    verifyEqual(testCase, nnz(groups == "vin_only"), 6);
+    verifyEqual(testCase, nnz(groups == "reference_only"), 6);
+    verifyEqual(testCase, nnz(groups == "both"), 12);
+    seeds = [config.conditions.random_seed];
+    verifyEqual(testCase, numel(unique(seeds)), 24);
+    verifyTrue(testCase, all(seeds == round(seeds) & seeds >= 0));
+    pointsPerTrajectory = config.simulation_stop_time_s * ...
+        config.sampling.reference_frequency_hz * ...
+        config.sampling.intervals_per_cycle + 1;
+    verifyEqual(testCase, pointsPerTrajectory * numel(config.conditions), ...
+                54120024, 'AbsTol', 1e-8);
+    verifyFalse(testCase, contains(config.output_directory, 'screening'));
+end
+
+function testFormalConfigurationRejectsMalformedContracts(testCase)
+    root = testCase.TestData.projectRoot;
+    source = llc_read_json(fullfile(root, 'configs', 'matlab', ...
+        'sinusoidal_excitation', 'continuous_random_data_generation.json'));
+    configFile = [tempname, '.json'];
+    cleanupConfig = onCleanup(@()deleteIfPresent(configFile));
+
+    malformed = source;
+    malformed.excitation_timing.transition_time_s = 0.021;
+    writeJson(configFile, malformed);
+    verifyError(testCase, @()generate_llc_sinusoidal_excitation_dataset( ...
+        [], configFile, false), 'llc:InvalidConfig');
+
+    malformed = source;
+    malformed.random_excitation.vin.center_range = [420; 380];
+    writeJson(configFile, malformed);
+    verifyError(testCase, @()generate_llc_sinusoidal_excitation_dataset( ...
+        [], configFile, false), 'llc:InvalidConfig');
+
+    malformed = source;
+    malformed.conditions(1).excitation_group = 'load_only';
+    writeJson(configFile, malformed);
+    verifyError(testCase, @()generate_llc_sinusoidal_excitation_dataset( ...
+        [], configFile, false), 'llc:InvalidCondition');
+
+    malformed = source;
+    malformed.conditions(1).random_seed = 1.5;
+    writeJson(configFile, malformed);
+    verifyError(testCase, @()generate_llc_sinusoidal_excitation_dataset( ...
+        [], configFile, false), 'llc:InvalidCondition');
+
+    malformed = source;
+    malformed.conditions(1).dataset_role = 'holdout';
+    writeJson(configFile, malformed);
+    verifyError(testCase, @()generate_llc_sinusoidal_excitation_dataset( ...
+        [], configFile, false), 'llc:InvalidCondition');
+    clear cleanupConfig;
+end
+
 function testSinusoidalProfileUsesDelayedHalfCosineEnvelope(testCase)
     excitation = struct( ...
         'start_time_s', 5e-3, 'envelope_rise_time_s', 2e-3, ...
@@ -216,6 +299,56 @@ function testSinusoidalGeneratorSmoke(testCase)
     verifyLessThanOrEqual(testCase, max(trajectory.interval_control_values(:, 1)), 250000);
     verifyEqual(testCase, trajectory.network_input_contract.state_names, ...
                 {'i_Lr'; 'v_Cr'; 'i_Lm'; 'v_o'});
+    verifyEqual(testCase, trajectory.network_input_contract.exogenous_names, ...
+                {'Q1_A_high'; 'Q2_A_low'; 'Q3_B_high'; 'Q4_B_low'; 'vin_v'});
+    verifyEqual(testCase, ...
+                trajectory.network_input_contract.excluded_control_names, ...
+                {'reference_voltage_v'});
+    clear cleanupConfig cleanupDirectory;
+end
+
+function testFormalContinuousRandomGeneratorSmoke(testCase)
+    root = testCase.TestData.projectRoot;
+    sourceConfig = llc_read_json(fullfile(root, 'configs', 'matlab', ...
+        'sinusoidal_excitation', 'continuous_random_data_generation.json'));
+    [~, temporaryName] = fileparts(tempname);
+    relativeOutputDirectory = fullfile('data', 'raw', temporaryName);
+    outputDirectory = fullfile(root, relativeOutputDirectory);
+    mkdir(outputDirectory);
+    cleanupDirectory = onCleanup(@()rmdir(outputDirectory, 's'));
+    configFile = [tempname, '.json'];
+    cleanupConfig = onCleanup(@()deleteIfPresent(configFile));
+    sourceConfig.output_directory = relativeOutputDirectory;
+    sourceConfig.simulation_stop_time_s = 0.004;
+    sourceConfig.excitation_timing.start_time_s = 0.001;
+    sourceConfig.excitation_timing.segment_duration_s = 0.003;
+    sourceConfig.excitation_timing.transition_time_s = 0.0005;
+    sourceConfig.excitation_timing.segment_count = 1;
+    sourceConfig.conditions = sourceConfig.conditions(9);
+    writeJson(configFile, sourceConfig);
+
+    [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
+        [], configFile, false);
+
+    assertEqual(testCase, summary.successful_count, 1, ...
+                summary.entries(1).error_message);
+    assertEqual(testCase, summary.failed_count, 0);
+    trajectory = load(files(1), 'schema_version', 'dataset_split', ...
+        'random_seed', 'excitation', 'state_times_s', ...
+        'state_excitation_values', 'network_input_contract');
+    verifyEqual(testCase, trajectory.schema_version, ...
+                'llc-continuous-random-excitation-fixed-grid-trajectory-v1');
+    verifyEqual(testCase, trajectory.dataset_split, 'train');
+    verifyEqual(testCase, trajectory.random_seed, ...
+                sourceConfig.conditions.random_seed);
+    verifyEqual(testCase, trajectory.excitation.profile_type, ...
+                'continuous_random_segments_v1');
+    verifyNumElements(testCase, trajectory.excitation.segments, 1);
+    verifyNumElements(testCase, trajectory.state_times_s, 44001);
+    verifyGreaterThan(testCase, ...
+        range(trajectory.state_excitation_values(:, 1)), 1);
+    verifyGreaterThan(testCase, ...
+        range(trajectory.state_excitation_values(:, 2)), 0.1);
     verifyEqual(testCase, trajectory.network_input_contract.exogenous_names, ...
                 {'Q1_A_high'; 'Q2_A_low'; 'Q3_B_high'; 'Q4_B_low'; 'vin_v'});
     verifyEqual(testCase, ...

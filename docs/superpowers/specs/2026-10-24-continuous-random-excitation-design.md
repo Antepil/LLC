@@ -71,7 +71,7 @@ Inactive signals remain at 400 V for Vin or 48 V for Vref with zero amplitude. V
 
 The existing sinusoidal dataset generator remains the external-excitation entry point. A focused builder converts a formal-condition seed and randomization ranges into a fully realized segmented excitation structure. The shared evaluator supports the existing fixed-sinusoid structure and the new segmented structure. The shared Simulink model continues to call that evaluator.
 
-The formal JSON configuration has its own schema version and output directory. Generated formal trajectories have their own trajectory schema, include the dataset split, seed, realized segment table, and the unchanged network-input contract. Formal files use MAT v7.3.
+The formal JSON configuration has its own schema version and output directory. Generated formal trajectories have their own trajectory schema, include the dataset split, seed, realized segment table, and the unchanged network-input contract. Formal files use MAT v7 because MATLAB's HDF5-based v7.3 writer cannot create or reopen files on the repository's WSL UNC path; each trajectory remains well below the v7 per-variable size limit.
 
 The shared initializer must allow the old event-driven open-loop model to run without an excitation object. Closed-loop runs still require either an explicit excitation or enough constant Vin/Vref control data to construct one.
 
@@ -88,4 +88,3 @@ The shared initializer must allow the old event-driven open-loop model to run wi
 1. Blend complete old and new sinusoidal waveforms. This can keep values continuous when carefully initialized, but generally does not preserve the derivative and makes phase behavior difficult to audit.
 2. Reset phase to solve value continuity at every update. This does not generally preserve the derivative and introduces artificial phase decisions.
 3. Smooth center, amplitude, and frequency while integrating frequency into a continuous phase. This is selected because it directly enforces the stated continuity requirement and stores parameters with clear physical meaning.
-

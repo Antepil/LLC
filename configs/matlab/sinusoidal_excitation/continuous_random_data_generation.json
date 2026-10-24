@@ -1,0 +1,87 @@
+{
+  "schema_version": "llc-continuous-random-excitation-data-generation-v1",
+  "model_file": "matlab/models/llc_full_bridge_closed_loop.slx",
+  "output_directory": "data/raw/llc_sinusoidal_excitation/continuous_random",
+  "mat_file_version": "-v7",
+  "fixed_load_ohm": 2.304,
+  "simulation_stop_time_s": 0.205,
+  "solver": {
+    "name": "ode23t",
+    "max_step_s": 1E-7,
+    "relative_tolerance": 1E-5,
+    "absolute_tolerance": 1E-7
+  },
+  "sampling": {
+    "method": "uniform_reference_cycle_v1",
+    "reference_frequency_hz": 110000,
+    "intervals_per_cycle": 100,
+    "state_interpolation": "linear",
+    "interval_signal_sampling": "midpoint_previous"
+  },
+  "control": {
+    "control_period_s": 1E-5,
+    "voltage_filter_time_constant_s": 5E-5,
+    "reference_ramp_time_s": 0.001,
+    "initial_frequency_hz": 180000,
+    "bias_frequency_hz": 110000,
+    "minimum_frequency_hz": 60000,
+    "maximum_frequency_hz": 250000,
+    "frequency_slew_rate_hz_per_s": 1E8,
+    "proportional_gain_hz_per_v": 1000,
+    "integral_gain_hz_per_v_s": 5E6,
+    "deadtime_s": 2E-7,
+    "minimum_pulse_s": 5E-7
+  },
+  "excitation_timing": {
+    "start_time_s": 0.005,
+    "segment_duration_s": 0.020,
+    "transition_time_s": 0.002,
+    "segment_count": 10
+  },
+  "random_excitation": {
+    "frequency_choices_hz": [100, 300, 1000],
+    "vin": {
+      "initial_center_value": 400,
+      "center_range": [380, 420],
+      "amplitude_range": [10, 20]
+    },
+    "reference": {
+      "initial_center_value": 48,
+      "center_range": [45.6, 50.4],
+      "amplitude_range": [1.2, 2.4]
+    }
+  },
+  "initial_state": [0, 0, 0, 0],
+  "validation_tolerances": {
+    "timing_s": 1E-12,
+    "initial_state_abs": 1E-8,
+    "stop_time_abs_s": 1E-12,
+    "excitation_abs_v": 1E-9
+  },
+  "conditions": [
+    {"trajectory_id": "train_vin_01", "dataset_role": "train", "excitation_group": "vin_only", "random_seed": 21001},
+    {"trajectory_id": "train_vin_02", "dataset_role": "train", "excitation_group": "vin_only", "random_seed": 21002},
+    {"trajectory_id": "train_vin_03", "dataset_role": "train", "excitation_group": "vin_only", "random_seed": 21003},
+    {"trajectory_id": "train_vin_04", "dataset_role": "train", "excitation_group": "vin_only", "random_seed": 21004},
+    {"trajectory_id": "train_reference_01", "dataset_role": "train", "excitation_group": "reference_only", "random_seed": 22001},
+    {"trajectory_id": "train_reference_02", "dataset_role": "train", "excitation_group": "reference_only", "random_seed": 22002},
+    {"trajectory_id": "train_reference_03", "dataset_role": "train", "excitation_group": "reference_only", "random_seed": 22003},
+    {"trajectory_id": "train_reference_04", "dataset_role": "train", "excitation_group": "reference_only", "random_seed": 22004},
+    {"trajectory_id": "train_both_01", "dataset_role": "train", "excitation_group": "both", "random_seed": 23001},
+    {"trajectory_id": "train_both_02", "dataset_role": "train", "excitation_group": "both", "random_seed": 23002},
+    {"trajectory_id": "train_both_03", "dataset_role": "train", "excitation_group": "both", "random_seed": 23003},
+    {"trajectory_id": "train_both_04", "dataset_role": "train", "excitation_group": "both", "random_seed": 23004},
+    {"trajectory_id": "train_both_05", "dataset_role": "train", "excitation_group": "both", "random_seed": 23005},
+    {"trajectory_id": "train_both_06", "dataset_role": "train", "excitation_group": "both", "random_seed": 23006},
+    {"trajectory_id": "train_both_07", "dataset_role": "train", "excitation_group": "both", "random_seed": 23007},
+    {"trajectory_id": "train_both_08", "dataset_role": "train", "excitation_group": "both", "random_seed": 23008},
+    {"trajectory_id": "validation_vin_01", "dataset_role": "validation", "excitation_group": "vin_only", "random_seed": 31001},
+    {"trajectory_id": "validation_reference_01", "dataset_role": "validation", "excitation_group": "reference_only", "random_seed": 32001},
+    {"trajectory_id": "validation_both_01", "dataset_role": "validation", "excitation_group": "both", "random_seed": 33001},
+    {"trajectory_id": "validation_both_02", "dataset_role": "validation", "excitation_group": "both", "random_seed": 33002},
+    {"trajectory_id": "test_vin_01", "dataset_role": "test", "excitation_group": "vin_only", "random_seed": 41001},
+    {"trajectory_id": "test_reference_01", "dataset_role": "test", "excitation_group": "reference_only", "random_seed": 42001},
+    {"trajectory_id": "test_both_01", "dataset_role": "test", "excitation_group": "both", "random_seed": 43001},
+    {"trajectory_id": "test_both_02", "dataset_role": "test", "excitation_group": "both", "random_seed": 43002}
+  ]
+}

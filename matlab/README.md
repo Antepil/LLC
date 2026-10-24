@@ -119,3 +119,32 @@ setup_paths;
 饱和方向冻结积分。该设置只存在于正弦激励配置，旧固定工况配置仍采用原有无频率边界策略。
 网络输入所需的 Vin 与四路实际门极均保存到固定网格，Vref、
 频率指令及原始求解器输出作为控制与审计信号同时保存。正弦数据不使用固定参考值的稳态判据。
+
+## 连续随机分段激励正式数据
+
+正式配置位于
+`configs/matlab/sinusoidal_excitation/continuous_random_data_generation.json`。它保留上述筛选配置，仍由独立的
+Vin/Vref 外部激励入口生成数据：
+
+```matlab
+addpath('matlab');
+setup_paths;
+config = fullfile(pwd, 'configs', 'matlab', 'sinusoidal_excitation', ...
+    'continuous_random_data_generation.json');
+[files, summary] = generate_llc_sinusoidal_excitation_dataset([], config, true);
+```
+
+配置包含 24 条 205 ms 轨迹，其中前 5 ms 用于启动，随后包含 10 个 20 ms 激励段。每段开始时重新抽取
+Vin 和/或 Vref 的中心值、幅值与频率，并在 2 ms 内使用三次平滑步函数过渡；频率经积分形成连续相位，
+因此激励值及一阶导数在更新点连续。负载固定为 2.304 Ω。
+
+Vin 的中心值范围为 380–420 V、峰值幅度为 10–20 V；Vref 的中心值范围为 45.6–50.4 V、峰值幅度为
+1.2–2.4 V；两者的频率均从 100、300、1000 Hz 中独立抽取。每条轨迹保存独立随机种子与全部实际分段参数。
+数据按整条轨迹划分为 16 条训练、4 条验证和 4 条测试，包含 6 条仅 Vin、6 条仅 Vref 和 12 条双变量激励。
+
+固定网格采样率为 11 MHz。每条轨迹包含
+`0.205 * 110000 * 100 + 1 = 2255001` 个状态时刻，24 条共 54120024 个状态时刻。网络输入契约仍为
+4 个状态、4 路实际门极和 Vin；Vref 只保存为控制与审计信号。输出写入
+`data/raw/llc_sinusoidal_excitation/continuous_random`，使用 MAT v7。MATLAB 的 HDF5/v7.3 驱动无法直接在本项目的
+WSL UNC 路径创建或重新打开文件，而单条轨迹小于 MAT v7 的变量大小限制。完整批量生成耗时较长，不属于自动测试；
+测试使用相同正式配置架构的缩短轨迹验证端到端生成链路。
