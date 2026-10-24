@@ -51,6 +51,118 @@ function testSinusoidalProfileUsesDelayedHalfCosineEnvelope(testCase)
                 400 + 10 * sin(2 * pi * 100 * 2e-3), 'AbsTol', 1e-12);
 end
 
+function testContinuousRandomBuilderIsDeterministicAndRangeValid(testCase)
+    randomization = formalRandomization();
+    timing = formalTiming();
+    condition = formalCondition('both', 12031);
+
+    first = llc_build_continuous_random_excitation( ...
+        randomization, timing, condition);
+    second = llc_build_continuous_random_excitation( ...
+        randomization, timing, condition);
+
+    verifyEqual(testCase, first, second);
+    verifyEqual(testCase, first.profile_type, ...
+                'continuous_random_segments_v1');
+    verifyNumElements(testCase, first.segments, timing.segment_count);
+    verifyEqual(testCase, [first.segments.start_time_s], ...
+        timing.start_time_s + (0:timing.segment_count - 1) * ...
+        timing.segment_duration_s, 'AbsTol', 1e-15);
+    vin = [first.segments.vin];
+    reference = [first.segments.reference];
+    verifyGreaterThanOrEqual(testCase, [vin.center_value], 380);
+    verifyLessThanOrEqual(testCase, [vin.center_value], 420);
+    verifyGreaterThanOrEqual(testCase, [vin.amplitude], 10);
+    verifyLessThanOrEqual(testCase, [vin.amplitude], 20);
+    verifyTrue(testCase, all(ismember([vin.frequency_hz], [100, 300, 1000])));
+    verifyGreaterThanOrEqual(testCase, [reference.center_value], 45.6);
+    verifyLessThanOrEqual(testCase, [reference.center_value], 50.4);
+    verifyGreaterThanOrEqual(testCase, [reference.amplitude], 1.2);
+    verifyLessThanOrEqual(testCase, [reference.amplitude], 2.4);
+    verifyTrue(testCase, ...
+        all(ismember([reference.frequency_hz], [100, 300, 1000])));
+end
+
+function testContinuousRandomBuilderKeepsInactiveSignalConstant(testCase)
+    randomization = formalRandomization();
+    timing = formalTiming();
+    vinOnly = llc_build_continuous_random_excitation( ...
+        randomization, timing, formalCondition('vin_only', 12041));
+    referenceOnly = llc_build_continuous_random_excitation( ...
+        randomization, timing, formalCondition('reference_only', 12042));
+
+    vinOnlyReference = [vinOnly.segments.reference];
+    referenceOnlyVin = [referenceOnly.segments.vin];
+    verifyEqual(testCase, [vinOnlyReference.center_value], ...
+                48 * ones(1, timing.segment_count));
+    verifyEqual(testCase, [vinOnlyReference.amplitude], ...
+                zeros(1, timing.segment_count));
+    verifyEqual(testCase, [vinOnlyReference.frequency_hz], ...
+                zeros(1, timing.segment_count));
+    verifyEqual(testCase, [referenceOnlyVin.center_value], ...
+                400 * ones(1, timing.segment_count));
+    verifyEqual(testCase, [referenceOnlyVin.amplitude], ...
+                zeros(1, timing.segment_count));
+    verifyEqual(testCase, [referenceOnlyVin.frequency_hz], ...
+                zeros(1, timing.segment_count));
+end
+
+function testContinuousRandomBuilderPreservesGlobalRandomState(testCase)
+    rng(9341, 'twister');
+    before = rng;
+    llc_build_continuous_random_excitation( ...
+        formalRandomization(), formalTiming(), formalCondition('both', 12051));
+    after = rng;
+    verifyEqual(testCase, after, before);
+end
+
+function testContinuousRandomBuilderRejectsUnknownGroup(testCase)
+    verifyError(testCase, @()llc_build_continuous_random_excitation( ...
+        formalRandomization(), formalTiming(), formalCondition('unknown', 12061)), ...
+        'llc:InvalidCondition');
+end
+
+function testContinuousRandomProfileBlendsParametersAndIntegratesPhase(testCase)
+    excitation = llc_build_continuous_random_excitation( ...
+        formalRandomization(), formalTiming(), formalCondition('both', 12071));
+    transition = excitation.transition_time_s;
+    duration = excitation.segment_duration_s;
+    firstTime = excitation.segments(1).start_time_s + transition / 2;
+    secondTime = excitation.segments(2).start_time_s + transition / 2;
+
+    actual = llc_evaluate_sinusoidal_excitation([firstTime; secondTime], excitation);
+    expectedFirst = expectedBlendedValue(excitation.vin, ...
+        excitation.segments(1).vin, transition / 2, transition, 0);
+    firstFrequency = excitation.segments(1).vin.frequency_hz;
+    phaseCyclesAtSecond = firstFrequency * duration;
+    expectedSecond = expectedBlendedValue(excitation.segments(1).vin, ...
+        excitation.segments(2).vin, transition / 2, transition, ...
+        phaseCyclesAtSecond, excitation.vin.phase_rad);
+
+    verifyEqual(testCase, actual(1, 1), expectedFirst, 'AbsTol', 1e-11);
+    verifyEqual(testCase, actual(2, 1), expectedSecond, 'AbsTol', 1e-11);
+end
+
+function testContinuousRandomProfileIsC1AtEveryBoundary(testCase)
+    excitation = llc_build_continuous_random_excitation( ...
+        formalRandomization(), formalTiming(), formalCondition('both', 12081));
+    segmentStarts = [excitation.segments.start_time_s];
+    boundaries = sort([segmentStarts, ...
+                       segmentStarts + excitation.transition_time_s]);
+    h = 1e-8;
+    for boundary = boundaries
+        values = llc_evaluate_sinusoidal_excitation( ...
+            [boundary - h; boundary; boundary + h], excitation);
+        leftDerivative = (values(2, :) - values(1, :)) / h;
+        rightDerivative = (values(3, :) - values(2, :)) / h;
+        verifyEqual(testCase, values(2, :), ...
+            llc_evaluate_sinusoidal_excitation(boundary, excitation), ...
+            'AbsTol', 1e-12);
+        verifyEqual(testCase, leftDerivative, rightDerivative, ...
+                    'AbsTol', 100);
+    end
+end
+
 function testSharedModelHasExcitationInterface(testCase)
     root = testCase.TestData.projectRoot;
     modelFile = fullfile(root, 'matlab', 'models', 'llc_full_bridge_closed_loop.slx');
@@ -115,6 +227,48 @@ end
 function result = signal(center, amplitude, frequency, phase)
     result = struct('center_value', center, 'amplitude', amplitude, ...
                     'frequency_hz', frequency, 'phase_rad', phase);
+end
+
+function value = formalRandomization()
+    value = struct( ...
+        'frequency_choices_hz', [100, 300, 1000], ...
+        'vin', struct('initial_center_value', 400, ...
+                      'center_range', [380, 420], ...
+                      'amplitude_range', [10, 20]), ...
+        'reference', struct('initial_center_value', 48, ...
+                            'center_range', [45.6, 50.4], ...
+                            'amplitude_range', [1.2, 2.4]));
+end
+
+function value = formalTiming()
+    value = struct('start_time_s', 5e-3, ...
+                   'segment_duration_s', 20e-3, ...
+                   'transition_time_s', 2e-3, ...
+                   'segment_count', 10);
+end
+
+function value = formalCondition(group, seed)
+    value = struct('trajectory_id', ['test_', group], ...
+                   'dataset_role', 'train', ...
+                   'excitation_group', group, ...
+                   'random_seed', seed);
+end
+
+function value = expectedBlendedValue(old, target, localTime, transition, ...
+        phaseCyclesAtStart, initialPhase)
+    if nargin < 6
+        initialPhase = old.phase_rad;
+    end
+    s = localTime / transition;
+    weight = 3 * s^2 - 2 * s^3;
+    center = old.center_value + (target.center_value - old.center_value) * weight;
+    amplitude = old.amplitude + (target.amplitude - old.amplitude) * weight;
+    oldFrequency = old.frequency_hz;
+    deltaFrequency = target.frequency_hz - oldFrequency;
+    transitionIntegral = oldFrequency * localTime + ...
+        deltaFrequency * transition * (s^3 - 0.5 * s^4);
+    phase = initialPhase + 2 * pi * (phaseCyclesAtStart + transitionIntegral);
+    value = center + amplitude * sin(phase);
 end
 
 function writeJson(file, value)
