@@ -6,10 +6,13 @@ from .checkpointing import (
     CheckpointMetadata,
     TopKConfig,
 )
+from .normalization import LLCNormalizer, NormalizationConfig
 
 __all__ = [
     "CheckpointConfig",
     "CheckpointManager",
     "CheckpointMetadata",
+    "LLCNormalizer",
+    "NormalizationConfig",
     "TopKConfig",
 ]

@@ -29,13 +29,24 @@ model:
     bias: zeros
 
 normalization:
-  # 网络只接收已归一化的张量。尺度计算和物理量转换由后续适配器负责。
+  # 仅用训练集计算四个状态的 RMS；不减均值，保留物理零点。
   network_input: [z_i_Lr, z_v_Cr, z_i_Lm, z_v_o,
                   Q1_A_high, Q2_A_low, Q3_B_high, Q4_B_low, Vin_over_V_ref]
   network_output: [dz_i_Lr_dtau, dz_v_Cr_dtau, dz_i_Lm_dtau, dz_v_o_dtau]
-  state_scale_rule: null
-  vin_reference_v: null
-  time_reference_s: null
+  state_scale_rule: train_rms_scale_only
+  state_scale_epsilon: 1.0e-12
+  # 基础配置尚未拟合；训练集装载后必须写入四个正数，并保存到运行配置/检查点。
+  state_scales: null
+  vin_reference_v: 400.0
+  # 以 110 kHz 参考周期归一化时间，固定网格步长对应 delta_tau = 0.01。
+  time_reference_s: 9.090909090909091e-6
+
+loss:
+  # 对数值积分器生成的归一化状态序列计算 MSE，不监督直接导数。
+  type: normalized_rollout_mse
+  state_dim: 4
+  exclude_initial_state: true
+  reduction: mean
 
 # ==================== 检查点保存 ====================
 checkpoint:
@@ -43,13 +54,13 @@ checkpoint:
   directory: artifacts/checkpoints
   topk:
     # 用于筛选最佳检查点的指标名称，须与训练记录的指标一致。
-    monitor_key: test_mean_score
-    # 指标比较方向：max 表示数值越大越好。
-    mode: max
+    monitor_key: val_rollout_mse
+    # 验证集滚动 MSE 越小越好；测试集不参与模型选择。
+    mode: min
     # 保留的最佳检查点数量。
     k: 5
     # 检查点文件名模板，所用字段须由保存逻辑提供。
-    format_str: 'epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt'
+    format_str: 'epoch={epoch:04d}-val_rollout_mse={val_rollout_mse:.6e}.ckpt'
   # 是否保存最新检查点。
   save_last_ckpt: true
   # 工作区快照尚未定义；启用时配置解析会显式报错。
