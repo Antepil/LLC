@@ -1,5 +1,5 @@
 # LLC Neural ODE 基础配置。
-# 当前阶段定义网络、归一化、窗口、求解器及损失契约；训练尚未实现。
+# 网络、归一化、窗口、求解器、损失及训练契约。
 
 data:
   # 状态、门极和 Vin 的顺序同时定义网络九维输入的拼接顺序。
@@ -58,6 +58,26 @@ loss:
   state_dim: 4
   exclude_initial_state: true
   reduction: mean
+
+training:
+  # 正式数据由 MATLAB 生成器按 train/validation/test 子目录保存。
+  data_directory: data/raw/llc_sinusoidal_excitation/continuous_random
+  file_pattern: '*.mat'
+  split_directories:
+    train: train
+    validation: validation
+    test: test
+  epochs: 100
+  batch_size: 16
+  num_workers: 0
+  pin_memory: true
+  seed: 20261025
+  optimizer:
+    type: AdamW
+    learning_rate: 1.0e-3
+    weight_decay: 1.0e-4
+  gradient_clip_norm: 1.0
+  resume_last: true
 
 # ==================== 检查点保存 ====================
 checkpoint:

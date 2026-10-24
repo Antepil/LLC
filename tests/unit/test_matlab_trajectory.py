@@ -85,6 +85,31 @@ class MATLABTrajectoryTests(unittest.TestCase):
 
         np.testing.assert_array_equal(trajectory.vin_values_v, [390.0, 400.0, 410.0])
 
+    def test_loads_formal_continuous_random_trajectory(self) -> None:
+        raw = self.fixed_trajectory()
+        raw.update(
+            {
+                "schema_version": "llc-continuous-random-excitation-fixed-grid-trajectory-v1",
+                "state_excitation_names": np.array(
+                    ["vin_v", "reference_voltage_v"], dtype=object
+                ),
+                "state_excitation_values": np.array(
+                    [[390.0, 48.0], [400.0, 49.0], [410.0, 50.0]]
+                ),
+                "fixed_load_ohm": 2.304,
+                "dataset_split": "train",
+            }
+        )
+        del raw["condition"]
+
+        trajectory = self.load(raw)
+
+        self.assertEqual(
+            trajectory.schema_version,
+            "llc-continuous-random-excitation-fixed-grid-trajectory-v1",
+        )
+        np.testing.assert_array_equal(trajectory.vin_values_v, [390.0, 400.0, 410.0])
+
     def test_uses_configured_load_instead_of_an_adapter_default(self) -> None:
         raw = self.fixed_trajectory()
         raw["condition"] = {"vin_v": 400.0, "load_ohm": 1.8432}

@@ -3,4 +3,5 @@
 --extra-index-url https://pypi.org/simple
 numpy>=1.26,<3
 scipy>=1.15,<2
+PyYAML>=6.0,<7
 torch==2.14.1+cu130

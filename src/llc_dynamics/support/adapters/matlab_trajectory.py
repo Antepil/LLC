@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from numbers import Real
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +15,12 @@ _STATE_NAMES = ("i_Lr", "v_Cr", "i_Lm", "v_o")
 _GATE_NAMES = ("Q1_A_high", "Q2_A_low", "Q3_B_high", "Q4_B_low")
 _FIXED_SCHEMA = "llc-closed-loop-fixed-grid-trajectory-v3"
 _SINUSOIDAL_SCHEMA = "llc-sinusoidal-excitation-fixed-grid-trajectory-v1"
-_SUPPORTED_SCHEMAS = {_FIXED_SCHEMA, _SINUSOIDAL_SCHEMA}
+_CONTINUOUS_RANDOM_SCHEMA = "llc-continuous-random-excitation-fixed-grid-trajectory-v1"
+_SUPPORTED_SCHEMAS = {
+    _FIXED_SCHEMA,
+    _SINUSOIDAL_SCHEMA,
+    _CONTINUOUS_RANDOM_SCHEMA,
+}
 
 
 @dataclass(frozen=True, slots=True)
