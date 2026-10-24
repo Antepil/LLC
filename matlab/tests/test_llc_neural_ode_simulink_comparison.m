@@ -9,6 +9,7 @@ function setupOnce(testCase)
     addpath(fullfile(matlabRoot, 'modulation'));
     addpath(fullfile(matlabRoot, 'models'));
     addpath(fullfile(matlabRoot, 'export'));
+    addpath(fullfile(matlabRoot, 'simulation'));
 end
 
 function teardown(testCase) %#ok<INUSD>
@@ -175,6 +176,68 @@ function testComparisonSimulationRejectsInsufficientLogCoverage(testCase)
         'llc:InvalidComparisonLog');
 end
 
+function testValidationConfigRequiresAndResolvesComparisonModelPath(testCase)
+    config = baseComparisonConfig(testCase);
+    config.paths = struct('simulink_comparison_model_file', ...
+        'matlab/models/llc_neural_ode_comparison.slx');
+    file = writeJson(testCase, config);
+    resolved = llc_load_neural_ode_validation_config(file, false);
+    verifyEqual(testCase, resolved.paths.simulink_comparison_model_file, ...
+        comparisonModelFile(testCase));
+
+    missing = rmfield(config, 'paths');
+    verifyError(testCase, @()llc_load_neural_ode_validation_config( ...
+        writeJson(testCase, missing), false), 'llc:IncompleteConfig');
+
+    nonexistent = config;
+    nonexistent.paths.simulink_comparison_model_file = ...
+        'matlab/models/not_a_comparison_model.slx';
+    verifyError(testCase, @()llc_load_neural_ode_validation_config( ...
+        writeJson(testCase, nonexistent), false), 'llc:MissingValidationInput');
+end
+
+function testConfiguredColdComparisonEntryPointRuns(testCase)
+    experiment = coldComparisonExperiment('configured_cold');
+    configFile = writeComparisonConfig(testCase, experiment);
+
+    [result, context] = llc_run_neural_ode_simulink_comparison( ...
+        configFile, 'configured_cold');
+
+    verifyEqual(testCase, context.experiment_id, 'configured_cold');
+    verifyEqual(testCase, context.startup_mode, 'cold');
+    verifyEqual(testCase, result.startup_mode, 'cold');
+    verifyEqual(testCase, result.times_s, (0:1e-6:10e-6).', 'AbsTol', 1e-18);
+    verifySize(testCase, result.reference_states, [11, 4]);
+    verifySize(testCase, result.predicted_states, [11, 4]);
+end
+
+function testConfiguredWarmComparisonClonesHandoffAndPreservesRamp(testCase)
+    experiment = warmComparisonExperiment('configured_warm');
+    configFile = writeWarmComparisonConfig(testCase, experiment);
+
+    [result, context] = llc_run_neural_ode_simulink_comparison( ...
+        configFile, 'configured_warm');
+
+    verifyEqual(testCase, context.startup_mode, 'warm');
+    verifyEqual(testCase, result.startup_mode, 'warm');
+    verifyTrue(testCase, context.steady_state_assessment.settled);
+    verifyEqual(testCase, context.reference_initial_state, ...
+        context.neural_initial_state, 'AbsTol', 0);
+    verifyEqual(testCase, result.reference_states(1, :).', ...
+        context.reference_initial_state, 'AbsTol', 1e-7);
+    verifyEqual(testCase, result.predicted_states(1, :).', ...
+        context.neural_initial_state, 'AbsTol', 1e-12);
+    verifyEqual(testCase, context.controller_state.last_time_s, 0, 'AbsTol', 0);
+    verifyGreaterThanOrEqual(testCase, ...
+        context.controller_state.reference_ramp_elapsed_time_s, ...
+        experiment.startup.preheat_duration_s);
+    verifyGreaterThan(testCase, context.controller_state.reference_voltage_v, 0);
+    verifyEqual(testCase, result.reference_control_values(1, 3), ...
+        context.controller_state.reference_voltage_v, 'AbsTol', 1e-8);
+    verifyEqual(testCase, result.neural_control_values(1, 3), ...
+        context.controller_state.reference_voltage_v, 'AbsTol', 1e-8);
+end
+
 function logged = simulateNeuralHarness(runtime, inputValue, stopTime)
     [~, suffix] = fileparts(tempname);
     modelName = matlab.lang.makeValidName(['neural_sfun_' suffix]);
@@ -245,6 +308,114 @@ end
 function file = comparisonModelFile(testCase)
     file = fullfile(testCase.TestData.matlabRoot, 'models', ...
         'llc_neural_ode_comparison.slx');
+end
+
+function config = baseComparisonConfig(testCase)
+    root = fileparts(testCase.TestData.matlabRoot);
+    config = llc_read_json(fullfile(root, 'configs', 'matlab', ...
+                                    'neural_ode_validation.json'));
+end
+
+function file = writeComparisonConfig(testCase, experiment)
+    config = baseComparisonConfig(testCase);
+    config.paths = struct('simulink_comparison_model_file', ...
+        'matlab/models/llc_neural_ode_comparison.slx');
+    config.model_export.file = writeComparisonModelExport(testCase);
+    config.experiments = experiment;
+    config.comparison_sampling.reference_frequency_hz = 1e6;
+    config.comparison_sampling.intervals_per_cycle = 1;
+    config.solver.max_step_s = 1e-7;
+    config.solver.relative_tolerance = 1e-6;
+    config.solver.absolute_tolerance = 1e-8;
+    config.solver.convergence_check.enabled = false;
+    file = writeJson(testCase, config);
+end
+
+function file = writeWarmComparisonConfig(testCase, experiment)
+    config = baseComparisonConfig(testCase);
+    config.paths = struct('simulink_comparison_model_file', ...
+        'matlab/models/llc_neural_ode_comparison.slx');
+    config.model_export.file = writeComparisonModelExport(testCase);
+    config.experiments = experiment;
+    config.comparison_sampling.reference_frequency_hz = 1e6;
+    config.comparison_sampling.intervals_per_cycle = 1;
+    config.solver.max_step_s = 1e-7;
+    config.solver.relative_tolerance = 1e-6;
+    config.solver.absolute_tolerance = 1e-8;
+    config.solver.convergence_check.enabled = false;
+    steadyRoot = struct('steady_state_assessment', permissiveSteadyConfig);
+    config.steady_state_config.file = writeJson(testCase, steadyRoot);
+    config.steady_state_config.section = 'steady_state_assessment';
+    file = writeJson(testCase, config);
+end
+
+function experiment = coldComparisonExperiment(identifier)
+    experiment = struct('experiment_id', identifier, 'enabled', true, ...
+        'mode', 'independent_closed_loop', ...
+        'startup', struct('mode', 'cold', 'evaluation_duration_s', 10e-6), ...
+        'condition', struct('load_ohm', 2.304), ...
+        'vin', constantSignal(400), 'reference', constantSignal(48));
+end
+
+function experiment = warmComparisonExperiment(identifier)
+    experiment = struct('experiment_id', identifier, 'enabled', true, ...
+        'mode', 'independent_closed_loop', ...
+        'startup', struct('mode', 'warm', 'preheat_duration_s', 20e-6, ...
+            'evaluation_duration_s', 15e-6, 'require_steady_state', true, ...
+            'extend_preheat_on_failure', false), ...
+        'condition', struct('load_ohm', 2.304), ...
+        'preheat_vin', constantSignal(400), ...
+        'preheat_reference', constantSignal(48), ...
+        'vin', constantSignal(410), 'reference', constantSignal(50));
+end
+
+function config = permissiveSteadyConfig
+    config = struct('check_times_s', 20e-6, 'window_duration_s', 20e-6, ...
+        'output_relative_tolerance', 100, ...
+        'state_reference_scales', [10, 400, 10, 48], ...
+        'state_mean_relative_tolerance', 1e6, ...
+        'ripple_relative_tolerance', 1e6, ...
+        'ripple_floor_relative_scale', 1e6, ...
+        'minimum_cycles_per_half_window', 1);
+end
+
+function file = writeComparisonModelExport(testCase)
+    file = [tempname, '.mat'];
+    testCase.addTeardown(@()deleteIfPresent(file));
+    runtime = validRuntime;
+    model = runtime.model;
+    schema_version = 'llc-neural-ode-matlab-export-v1';
+    network = model.network;
+    state_names = {'i_Lr', 'v_Cr', 'i_Lm', 'v_o'};
+    gate_names = {'Q1_A_high', 'Q2_A_low', 'Q3_B_high', 'Q4_B_low'};
+    network_input_order = {'z_i_Lr', 'z_v_Cr', 'z_i_Lm', 'z_v_o', ...
+        'Q1_A_high', 'Q2_A_low', 'Q3_B_high', 'Q4_B_low', 'Vin_over_V_ref'};
+    network_output_order = {'dz_i_Lr_dtau', 'dz_v_Cr_dtau', ...
+        'dz_i_Lm_dtau', 'dz_v_o_dtau'};
+    state_scales = model.state_scales;
+    vin_reference_v = model.vin_reference_v;
+    time_reference_s = model.time_reference_s;
+    load_resistance_ohm = model.load_resistance_ohm;
+    dtype = 'float64';
+    consistency_inputs = [zeros(1, 8), 1];
+    consistency_outputs = consistency_inputs * network.weights{1}.' + ...
+                          network.biases{1}.';
+    save(file, 'schema_version', 'network', 'state_names', 'gate_names', ...
+        'network_input_order', 'network_output_order', 'state_scales', ...
+        'vin_reference_v', 'time_reference_s', 'load_resistance_ohm', ...
+        'dtype', 'consistency_inputs', 'consistency_outputs');
+end
+
+function file = writeJson(testCase, value)
+    file = [tempname, '.json'];
+    testCase.addTeardown(@()deleteIfPresent(file));
+    stream = fopen(file, 'w');
+    if stream < 0
+        error('llc:TestFixture', 'Could not create JSON fixture.');
+    end
+    cleanup = onCleanup(@()fclose(stream));
+    fprintf(stream, '%s', jsonencode(value, 'PrettyPrint', true));
+    clear cleanup;
 end
 
 function hardware = comparisonHardware(testCase)
@@ -344,5 +515,11 @@ end
 function removeDirectoryIfPresent(directory)
     if isfolder(directory)
         rmdir(directory, 's');
+    end
+end
+
+function deleteIfPresent(file)
+    if isfile(file)
+        delete(file);
     end
 end

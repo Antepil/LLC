@@ -11,6 +11,9 @@
     "consistency_relative_tolerance": 1.0e-12
   },
   "reference_plant": {"model_file": "matlab/models/llc_full_bridge_closed_loop.slx"},
+  "paths": {
+    "simulink_comparison_model_file": "matlab/models/llc_neural_ode_comparison.slx"
+  },
   "solver": {
     "name": "ode23t",
     "max_step_s": 9.090909090909091e-8,

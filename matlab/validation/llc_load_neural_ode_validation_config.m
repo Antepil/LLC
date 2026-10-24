@@ -14,7 +14,7 @@ function config = llc_load_neural_ode_validation_config(configFile, requireModel
     matlabRoot = fileparts(fileparts(mfilename('fullpath')));
     projectRoot = fileparts(matlabRoot);
     required = {'hardware_config_file', 'control_config', 'steady_state_config', ...
-                'model_export', 'reference_plant', 'solver', 'comparison_sampling', ...
+                'model_export', 'reference_plant', 'paths', 'solver', 'comparison_sampling', ...
                 'experiments', 'metrics', 'output'};
     missing = required(~isfield(config, required));
     if ~isempty(missing)
@@ -22,12 +22,19 @@ function config = llc_load_neural_ode_validation_config(configFile, requireModel
     end
     config.project_root = projectRoot;
     requireText(config.output, 'directory');
+    if ~isstruct(config.paths) || ~isscalar(config.paths)
+        error('llc:InvalidConfig', 'paths must be a JSON object.');
+    end
+    requireText(config.paths, 'simulink_comparison_model_file');
     config.hardware_config_file = resolvePath(projectRoot, config.hardware_config_file);
     config.reference_plant.model_file = resolvePath(projectRoot, config.reference_plant.model_file);
+    config.paths.simulink_comparison_model_file = resolvePath( ...
+        projectRoot, config.paths.simulink_comparison_model_file);
     config.model_export.file = resolvePath(projectRoot, config.model_export.file);
     config.output.directory = resolvePath(projectRoot, config.output.directory);
     requireFile(config.hardware_config_file, 'hardware config');
     requireFile(config.reference_plant.model_file, 'reference plant');
+    requireFile(config.paths.simulink_comparison_model_file, 'Simulink comparison model');
     if requireModelExport
         requireFile(config.model_export.file, 'model export');
     end
