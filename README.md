@@ -43,7 +43,8 @@ python -m unittest discover -s tests -v
 
 `llc_dynamics.support.load_matlab_trajectory` 读取固定 Vin 或正弦激励的 MATLAB v5/v7
 轨迹，统一返回状态节点、节点 Vin 和准确门极事件表。读取时严格校验状态/门极顺序、时间轴、
-有限值、二值门极、桥臂互斥、事件覆盖范围及固定负载契约；当前默认只接受 2.304 Ω 数据。
+有限值、二值门极、桥臂互斥、事件覆盖范围及固定负载契约。调用方必须把完整运行配置传给
+加载器；负载约束只读取 `condition.load_resistance_ohm`，加载器内部没有独立默认值。
 
 训练目标为 `NormalizedRolloutMSE`：比较数值积分器生成的 `[batch, time, 4]` 归一化
 状态序列与目标序列，对除初始节点之外的所有元素取均方误差。损失模块不计算有限差分导数，

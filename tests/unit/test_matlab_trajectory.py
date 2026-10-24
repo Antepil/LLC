@@ -20,6 +20,10 @@ class MATLABTrajectoryTests(unittest.TestCase):
         self.path.touch()
 
     @staticmethod
+    def root_config(load_ohm: float = 2.304) -> dict[str, object]:
+        return {"condition": {"load_resistance_ohm": load_ohm}}
+
+    @staticmethod
     def fixed_trajectory() -> dict[str, object]:
         return {
             "schema_version": "llc-closed-loop-fixed-grid-trajectory-v3",
@@ -42,6 +46,7 @@ class MATLABTrajectoryTests(unittest.TestCase):
         }
 
     def load(self, raw: dict[str, object], **kwargs: object) -> MATLABTrajectory:
+        kwargs.setdefault("config", self.root_config())
         with patch(
             "llc_dynamics.support.adapters.matlab_trajectory._load_mat_file",
             return_value=raw,
@@ -80,11 +85,11 @@ class MATLABTrajectoryTests(unittest.TestCase):
 
         np.testing.assert_array_equal(trajectory.vin_values_v, [390.0, 400.0, 410.0])
 
-    def test_can_explicitly_accept_other_loads_for_future_conditioned_models(self) -> None:
+    def test_uses_configured_load_instead_of_an_adapter_default(self) -> None:
         raw = self.fixed_trajectory()
         raw["condition"] = {"vin_v": 400.0, "load_ohm": 1.8432}
 
-        trajectory = self.load(raw, expected_load_ohm=None)
+        trajectory = self.load(raw, config=self.root_config(1.8432))
 
         self.assertEqual(trajectory.load_resistance_ohm, 1.8432)
 
@@ -94,6 +99,33 @@ class MATLABTrajectoryTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "fixed-load contract"):
             self.load(raw)
+
+    def test_requires_strict_fixed_load_condition_config(self) -> None:
+        raw = self.fixed_trajectory()
+        invalid_configs = (
+            ({}, ValueError, "missing condition"),
+            ({"condition": None}, TypeError, "must be a mapping"),
+            ({"condition": {}}, ValueError, "missing required keys"),
+            (
+                {
+                    "condition": {
+                        "load_resistance_ohm": 2.304,
+                        "load_is_network_input": False,
+                    }
+                },
+                ValueError,
+                "unknown keys",
+            ),
+            (
+                {"condition": {"load_resistance_ohm": 0.0}},
+                ValueError,
+                "strictly positive",
+            ),
+        )
+        for config, error_type, message in invalid_configs:
+            with self.subTest(config=config):
+                with self.assertRaisesRegex(error_type, message):
+                    self.load(raw, config=config)
 
     def test_rejects_missing_required_field(self) -> None:
         raw = self.fixed_trajectory()

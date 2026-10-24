@@ -39,19 +39,18 @@ class MATLABTrajectory:
 def load_matlab_trajectory(
     path: str | Path,
     *,
-    expected_load_ohm: float | None = 2.304,
+    config: Mapping[str, Any],
     load_abs_tolerance: float = 1.0e-9,
 ) -> MATLABTrajectory:
     """Load one supported ``.mat`` trajectory and validate its training contract.
 
-    ``expected_load_ohm`` defaults to the fixed-load neural-ODE contract. Pass
-    ``None`` only when a later model explicitly includes load as an input.
+    The fixed-load contract is read from
+    ``config["condition"]["load_resistance_ohm"]``. The caller supplies the
+    resolved root configuration so the adapter has no independent load default.
     """
 
     source_path = _validate_path(path)
-    expected_load = _optional_positive_float(
-        expected_load_ohm, name="expected_load_ohm"
-    )
+    expected_load = _fixed_load_from_config(config)
     tolerance = _nonnegative_float(load_abs_tolerance, name="load_abs_tolerance")
     raw = _load_mat_file(source_path)
 
@@ -94,9 +93,7 @@ def load_matlab_trajectory(
     )
 
     load_ohm = _load_resistance(raw, schema)
-    if expected_load is not None and not np.isclose(
-        load_ohm, expected_load, rtol=0.0, atol=tolerance
-    ):
+    if not np.isclose(load_ohm, expected_load, rtol=0.0, atol=tolerance):
         raise ValueError(
             f"trajectory load {load_ohm:g} ohm does not match the fixed-load "
             f"contract {expected_load:g} ohm"
@@ -115,6 +112,29 @@ def load_matlab_trajectory(
         vin_times_s=_readonly(times.copy()),
         vin_values_v=_readonly(vin),
         load_resistance_ohm=load_ohm,
+    )
+
+
+def _fixed_load_from_config(config: Mapping[str, Any]) -> float:
+    if not isinstance(config, Mapping):
+        raise TypeError("config must be a mapping")
+    if "condition" not in config:
+        raise ValueError("root config is missing condition")
+    condition = config["condition"]
+    if not isinstance(condition, Mapping):
+        raise TypeError("config.condition must be a mapping")
+    expected = {"load_resistance_ohm"}
+    missing = sorted(expected.difference(condition))
+    unknown = sorted(set(condition).difference(expected))
+    if missing:
+        raise ValueError(
+            f"condition config is missing required keys: {', '.join(missing)}"
+        )
+    if unknown:
+        raise ValueError(f"condition config has unknown keys: {', '.join(unknown)}")
+    return _positive_float(
+        condition["load_resistance_ohm"],
+        name="condition.load_resistance_ohm",
     )
 
 
@@ -309,12 +329,6 @@ def _positive_float(value: Any, *, name: str) -> float:
     if result <= 0.0:
         raise ValueError(f"{name} must be strictly positive")
     return result
-
-
-def _optional_positive_float(value: Any, *, name: str) -> float | None:
-    if value is None:
-        return None
-    return _positive_float(value, name=name)
 
 
 def _nonnegative_float(value: Any, *, name: str) -> float:
