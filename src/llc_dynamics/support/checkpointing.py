@@ -234,6 +234,16 @@ def _finite_number(value: Any, *, name: str) -> float:
     return result
 
 
+@dataclass(frozen=True)
+class CheckpointMetadata:
+    """Training counters and configuration recovered from a checkpoint."""
+
+    epoch: int
+    global_step: int
+    metrics: Mapping[str, float]
+    run_config: Mapping[str, Any]
+
+
 class CheckpointManager:
     """Save trusted-run PyTorch checkpoints under a deterministic policy."""
 
@@ -338,6 +348,210 @@ class CheckpointManager:
         if self.config.save_last_ckpt:
             return last_path
         return ranked_path if retained else None
+
+    def load(
+        self,
+        path: Path,
+        *,
+        model: nn.Module,
+        optimizer: torch.optim.Optimizer,
+        expected_run_config: Mapping[str, Any],
+        scheduler: Any | None = None,
+        map_location: torch.device | str,
+        restore_rng: bool = True,
+    ) -> CheckpointMetadata:
+        """Strictly restore a trusted checkpoint into supplied training objects."""
+
+        if not isinstance(path, Path):
+            raise TypeError("checkpoint path must be a pathlib.Path")
+        if not path.is_file():
+            raise FileNotFoundError(f"checkpoint does not exist: {path}")
+        if not isinstance(model, nn.Module):
+            raise TypeError("model must be a torch.nn.Module")
+        if not isinstance(optimizer, torch.optim.Optimizer):
+            raise TypeError("optimizer must be a torch optimizer")
+        if not isinstance(expected_run_config, Mapping):
+            raise TypeError("expected_run_config must be a mapping")
+        if not isinstance(map_location, (str, torch.device)):
+            raise TypeError("map_location must be a device string or torch.device")
+        torch.device(map_location)
+        if not isinstance(restore_rng, bool):
+            raise TypeError("restore_rng must be a boolean")
+        if scheduler is not None and not callable(
+            getattr(scheduler, "load_state_dict", None)
+        ):
+            raise TypeError("scheduler must provide load_state_dict()")
+
+        payload = torch.load(path, map_location=map_location, weights_only=False)
+        validated = self._validate_payload(payload, expected_run_config)
+        saved_scheduler_state = validated["scheduler_state"]
+        if (saved_scheduler_state is None) != (scheduler is None):
+            raise ValueError(
+                "checkpoint and destination scheduler presence must match"
+            )
+
+        model_copy = copy.deepcopy(model)
+        model_copy.load_state_dict(validated["model_state"], strict=True)
+        optimizer_copy = copy.deepcopy(optimizer)
+        optimizer_copy.load_state_dict(validated["optimizer_state"])
+        if scheduler is not None:
+            scheduler_copy = copy.deepcopy(scheduler)
+            scheduler_copy.load_state_dict(saved_scheduler_state)
+
+        previous_model = copy.deepcopy(model.state_dict())
+        previous_optimizer = copy.deepcopy(optimizer.state_dict())
+        previous_scheduler = (
+            None if scheduler is None else copy.deepcopy(scheduler.state_dict())
+        )
+        previous_python_rng = random.getstate()
+        previous_torch_rng = torch.get_rng_state()
+        previous_cuda_rng = (
+            torch.cuda.get_rng_state_all() if torch.cuda.is_initialized() else []
+        )
+        try:
+            model.load_state_dict(validated["model_state"], strict=True)
+            optimizer.load_state_dict(validated["optimizer_state"])
+            if scheduler is not None:
+                scheduler.load_state_dict(saved_scheduler_state)
+            if restore_rng:
+                random.setstate(validated["python_rng_state"])
+                torch.set_rng_state(validated["torch_rng_state"].cpu())
+                cuda_states = validated["cuda_rng_states"]
+                if cuda_states:
+                    if not torch.cuda.is_available():
+                        raise RuntimeError(
+                            "checkpoint has CUDA RNG state but CUDA is unavailable"
+                        )
+                    if len(cuda_states) != torch.cuda.device_count():
+                        raise RuntimeError(
+                            "checkpoint CUDA RNG state count does not match devices"
+                        )
+                    torch.cuda.set_rng_state_all(
+                        [state.cpu() for state in cuda_states]
+                    )
+        except BaseException:
+            model.load_state_dict(previous_model, strict=True)
+            optimizer.load_state_dict(previous_optimizer)
+            if scheduler is not None:
+                scheduler.load_state_dict(previous_scheduler)
+            random.setstate(previous_python_rng)
+            torch.set_rng_state(previous_torch_rng)
+            if previous_cuda_rng:
+                torch.cuda.set_rng_state_all(previous_cuda_rng)
+            raise
+
+        return CheckpointMetadata(
+            epoch=validated["epoch"],
+            global_step=validated["global_step"],
+            metrics=copy.deepcopy(validated["metrics"]),
+            run_config=copy.deepcopy(validated["run_config"]),
+        )
+
+    def load_last(
+        self,
+        *,
+        model: nn.Module,
+        optimizer: torch.optim.Optimizer,
+        expected_run_config: Mapping[str, Any],
+        scheduler: Any | None = None,
+        map_location: torch.device | str,
+        restore_rng: bool = True,
+    ) -> CheckpointMetadata:
+        """Restore the configured ``last.ckpt`` checkpoint."""
+
+        return self.load(
+            self.config.directory / "last.ckpt",
+            model=model,
+            optimizer=optimizer,
+            expected_run_config=expected_run_config,
+            scheduler=scheduler,
+            map_location=map_location,
+            restore_rng=restore_rng,
+        )
+
+    def _validate_payload(
+        self, payload: Any, expected_run_config: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        if not isinstance(payload, Mapping):
+            raise TypeError("checkpoint payload must be a mapping")
+        expected_keys = {
+            "schema_version",
+            "model_state",
+            "optimizer_state",
+            "scheduler_state",
+            "epoch",
+            "global_step",
+            "metrics",
+            "run_config",
+            "python_rng_state",
+            "torch_rng_state",
+            "cuda_rng_states",
+        }
+        try:
+            _require_exact_keys(payload, expected_keys, section="checkpoint payload")
+        except ValueError as error:
+            raise ValueError("invalid checkpoint payload keys") from error
+        schema_version = payload["schema_version"]
+        if (
+            isinstance(schema_version, bool)
+            or not isinstance(schema_version, int)
+            or schema_version != _PAYLOAD_SCHEMA_VERSION
+        ):
+            raise ValueError("unsupported checkpoint payload schema version")
+        if not isinstance(payload["model_state"], Mapping):
+            raise TypeError("checkpoint model_state must be a mapping")
+        if not isinstance(payload["optimizer_state"], Mapping):
+            raise TypeError("checkpoint optimizer_state must be a mapping")
+        scheduler_state = payload["scheduler_state"]
+        if scheduler_state is not None and not isinstance(scheduler_state, Mapping):
+            raise TypeError("checkpoint scheduler_state must be a mapping or null")
+
+        epoch = _nonnegative_integer(payload["epoch"], name="checkpoint epoch")
+        global_step = _nonnegative_integer(
+            payload["global_step"], name="checkpoint global_step"
+        )
+        metrics = self._validate_metrics(payload["metrics"])
+        saved_run_config = payload["run_config"]
+        if not isinstance(saved_run_config, Mapping):
+            raise TypeError("checkpoint run_config must be a mapping")
+        for section in ("model", "normalization"):
+            if section not in saved_run_config:
+                raise ValueError(f"checkpoint run_config is missing {section}")
+            if section not in expected_run_config:
+                raise ValueError(f"expected_run_config is missing {section}")
+            if saved_run_config[section] != expected_run_config[section]:
+                raise ValueError(f"checkpoint {section} configuration is incompatible")
+
+        python_rng_state = payload["python_rng_state"]
+        try:
+            random.Random().setstate(python_rng_state)
+        except (TypeError, ValueError) as error:
+            raise ValueError("checkpoint Python RNG state is invalid") from error
+        torch_rng_state = payload["torch_rng_state"]
+        if not isinstance(torch_rng_state, torch.Tensor):
+            raise TypeError("checkpoint PyTorch RNG state must be a tensor")
+        try:
+            torch.Generator(device="cpu").set_state(torch_rng_state.cpu())
+        except RuntimeError as error:
+            raise ValueError("checkpoint PyTorch RNG state is invalid") from error
+        cuda_rng_states = payload["cuda_rng_states"]
+        if not isinstance(cuda_rng_states, list) or any(
+            not isinstance(state, torch.Tensor) for state in cuda_rng_states
+        ):
+            raise TypeError("checkpoint CUDA RNG states must be a list of tensors")
+
+        return {
+            "model_state": payload["model_state"],
+            "optimizer_state": payload["optimizer_state"],
+            "scheduler_state": scheduler_state,
+            "epoch": epoch,
+            "global_step": global_step,
+            "metrics": metrics,
+            "run_config": dict(saved_run_config),
+            "python_rng_state": python_rng_state,
+            "torch_rng_state": torch_rng_state,
+            "cuda_rng_states": cuda_rng_states,
+        }
 
     def _validate_metrics(self, metrics: Mapping[str, float]) -> dict[str, float]:
         if not isinstance(metrics, Mapping):

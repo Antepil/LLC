@@ -4,15 +4,22 @@ from __future__ import annotations
 
 import json
 import math
+import random
 import tempfile
 import unittest
+from copy import deepcopy
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from unittest.mock import patch
 
 import torch
 from torch import nn
 
-from llc_dynamics.support.checkpointing import CheckpointConfig, CheckpointManager
+from llc_dynamics.support.checkpointing import (
+    CheckpointConfig,
+    CheckpointManager,
+    CheckpointMetadata,
+)
 
 
 def checkpoint_mapping(**checkpoint_overrides: object) -> dict[str, object]:
@@ -453,6 +460,244 @@ class CheckpointSaveTests(unittest.TestCase):
             (config.directory / "index.json").read_bytes(), previous_manifest
         )
         self.assertEqual(list(config.directory.glob("*.tmp")), [])
+
+
+class CheckpointLoadTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary_directory.cleanup)
+        self.project_root = Path(self.temporary_directory.name)
+        self.config = CheckpointConfig.from_mapping(
+            checkpoint_mapping(), project_root=self.project_root
+        )
+        self.manager = CheckpointManager(self.config)
+        self.run_config = {
+            "model": {"type": "linear", "input_dim": 2, "output_dim": 1},
+            "normalization": {"scale": [1.0, 2.0]},
+            "experiment": "load-tests",
+        }
+
+    def training_objects(
+        self,
+    ) -> tuple[nn.Linear, torch.optim.Adam, torch.optim.lr_scheduler.StepLR]:
+        model = nn.Linear(2, 1)
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.5)
+        return model, optimizer, scheduler
+
+    def populate_optimizer(
+        self, model: nn.Linear, optimizer: torch.optim.Optimizer
+    ) -> None:
+        optimizer.zero_grad()
+        model(torch.tensor([[2.0, -1.0]])).square().sum().backward()
+        optimizer.step()
+
+    def save_checkpoint(
+        self, *, scheduler: object | None
+    ) -> tuple[Path, dict[str, object]]:
+        model, optimizer, real_scheduler = self.training_objects()
+        self.populate_optimizer(model, optimizer)
+        if scheduler is not None:
+            scheduler = real_scheduler
+            real_scheduler.step()
+        random.seed(101)
+        torch.manual_seed(202)
+        self.manager.save(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            epoch=7,
+            global_step=123,
+            metrics={"test_mean_score": 9.5, "loss": 0.25},
+            run_config=self.run_config,
+        )
+        payload = torch.load(
+            self.config.directory / "last.ckpt",
+            map_location="cpu",
+            weights_only=False,
+        )
+        return self.config.directory / "last.ckpt", payload
+
+    def assert_nested_equal(self, actual: object, expected: object) -> None:
+        if isinstance(expected, torch.Tensor):
+            self.assertTrue(torch.equal(actual, expected))
+        elif isinstance(expected, dict):
+            self.assertEqual(set(actual), set(expected))
+            for key in expected:
+                self.assert_nested_equal(actual[key], expected[key])
+        elif isinstance(expected, (list, tuple)):
+            self.assertEqual(len(actual), len(expected))
+            for actual_item, expected_item in zip(actual, expected, strict=True):
+                self.assert_nested_equal(actual_item, expected_item)
+        else:
+            self.assertEqual(actual, expected)
+
+    def write_payload(self, payload: object, filename: str = "modified.ckpt") -> Path:
+        path = self.config.directory / filename
+        torch.save(payload, path)
+        return path
+
+    def test_explicit_load_restores_training_state_scheduler_and_rng(self) -> None:
+        path, payload = self.save_checkpoint(scheduler=object())
+        expected_python_random = random.random()
+        expected_torch_random = torch.rand(4)
+        model, optimizer, scheduler = self.training_objects()
+        random.seed(999)
+        torch.manual_seed(999)
+
+        metadata = self.manager.load(
+            path,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            expected_run_config=self.run_config,
+            map_location="cpu",
+        )
+
+        self.assert_nested_equal(model.state_dict(), payload["model_state"])
+        self.assert_nested_equal(optimizer.state_dict(), payload["optimizer_state"])
+        self.assert_nested_equal(scheduler.state_dict(), payload["scheduler_state"])
+        self.assertEqual(random.random(), expected_python_random)
+        self.assertTrue(torch.equal(torch.rand(4), expected_torch_random))
+        self.assertEqual(metadata.epoch, 7)
+        self.assertEqual(metadata.global_step, 123)
+        self.assertEqual(dict(metadata.metrics), {"test_mean_score": 9.5, "loss": 0.25})
+        self.assertEqual(dict(metadata.run_config), self.run_config)
+        with self.assertRaises(FrozenInstanceError):
+            metadata.epoch = 8  # type: ignore[misc]
+
+    def test_load_last_restores_without_scheduler_and_can_leave_rng_unchanged(self) -> None:
+        self.save_checkpoint(scheduler=None)
+        model, optimizer, _ = self.training_objects()
+        random.seed(303)
+        torch.manual_seed(404)
+        expected_python_state = random.getstate()
+        expected_torch_state = torch.get_rng_state().clone()
+
+        metadata = self.manager.load_last(
+            model=model,
+            optimizer=optimizer,
+            expected_run_config={**self.run_config, "experiment": "new-name"},
+            scheduler=None,
+            map_location=torch.device("cpu"),
+            restore_rng=False,
+        )
+
+        self.assertIsInstance(metadata, CheckpointMetadata)
+        self.assertEqual(random.getstate(), expected_python_state)
+        self.assertTrue(torch.equal(torch.get_rng_state(), expected_torch_state))
+
+    def test_rejects_missing_file_and_malformed_or_unsupported_payload(self) -> None:
+        model, optimizer, _ = self.training_objects()
+        with self.assertRaises(FileNotFoundError):
+            self.manager.load(
+                self.config.directory / "absent.ckpt",
+                model=model,
+                optimizer=optimizer,
+                expected_run_config=self.run_config,
+                map_location="cpu",
+            )
+
+        _, valid = self.save_checkpoint(scheduler=None)
+        malformed_payloads = (
+            [],
+            {**valid, "schema_version": 99},
+            {key: value for key, value in valid.items() if key != "model_state"},
+            {**valid, "epoch": True},
+            {**valid, "metrics": {"test_mean_score": math.nan}},
+            {**valid, "torch_rng_state": "invalid"},
+        )
+        for index, payload in enumerate(malformed_payloads):
+            with self.subTest(index=index):
+                path = self.write_payload(payload, f"malformed-{index}.ckpt")
+                destination_model, destination_optimizer, _ = self.training_objects()
+                with self.assertRaises((TypeError, ValueError)):
+                    self.manager.load(
+                        path,
+                        model=destination_model,
+                        optimizer=destination_optimizer,
+                        expected_run_config=self.run_config,
+                        map_location="cpu",
+                    )
+
+    def test_rejects_incompatible_model_without_mutating_it(self) -> None:
+        path, _ = self.save_checkpoint(scheduler=None)
+        model = nn.Linear(3, 1)
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+        original_state = deepcopy(model.state_dict())
+
+        with self.assertRaises(RuntimeError):
+            self.manager.load(
+                path,
+                model=model,
+                optimizer=optimizer,
+                expected_run_config=self.run_config,
+                map_location="cpu",
+            )
+
+        self.assert_nested_equal(model.state_dict(), original_state)
+
+    def test_rejects_invalid_optimizer_state_without_mutating_model(self) -> None:
+        _, payload = self.save_checkpoint(scheduler=None)
+        payload["optimizer_state"]["param_groups"][0]["params"] = []
+        path = self.write_payload(payload)
+        model, optimizer, _ = self.training_objects()
+        original_state = deepcopy(model.state_dict())
+
+        with self.assertRaises(ValueError):
+            self.manager.load(
+                path,
+                model=model,
+                optimizer=optimizer,
+                expected_run_config=self.run_config,
+                map_location="cpu",
+            )
+
+        self.assert_nested_equal(model.state_dict(), original_state)
+
+    def test_rejects_scheduler_presence_mismatch_in_both_directions(self) -> None:
+        saved_with_scheduler, _ = self.save_checkpoint(scheduler=object())
+        model, optimizer, _ = self.training_objects()
+        with self.assertRaisesRegex(ValueError, "scheduler"):
+            self.manager.load(
+                saved_with_scheduler,
+                model=model,
+                optimizer=optimizer,
+                scheduler=None,
+                expected_run_config=self.run_config,
+                map_location="cpu",
+            )
+
+        saved_without_scheduler, _ = self.save_checkpoint(scheduler=None)
+        model, optimizer, scheduler = self.training_objects()
+        with self.assertRaisesRegex(ValueError, "scheduler"):
+            self.manager.load(
+                saved_without_scheduler,
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                expected_run_config=self.run_config,
+                map_location="cpu",
+            )
+
+    def test_rejects_model_or_normalization_contract_mismatch(self) -> None:
+        path, _ = self.save_checkpoint(scheduler=None)
+        for section, replacement in (
+            ("model", {"type": "different"}),
+            ("normalization", {"scale": [1.0]}),
+        ):
+            expected = deepcopy(self.run_config)
+            expected[section] = replacement
+            model, optimizer, _ = self.training_objects()
+            with self.subTest(section=section):
+                with self.assertRaisesRegex(ValueError, section):
+                    self.manager.load(
+                        path,
+                        model=model,
+                        optimizer=optimizer,
+                        expected_run_config=expected,
+                        map_location="cpu",
+                    )
 
 
 if __name__ == "__main__":
