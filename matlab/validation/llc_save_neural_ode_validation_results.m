@@ -63,7 +63,7 @@ function value = tailError(metrics, stateIndex)
 end
 
 function tableValue = trackingMetricTable(results)
-    rows = cell(0, 6);
+    rows = cell(0, 8);
     for index = 1:numel(results)
         if ~isfield(results(index), 'tracking_metrics') || isempty(results(index).tracking_metrics)
             continue;
@@ -72,7 +72,9 @@ function tableValue = trackingMetricTable(results)
         rows(end + 1, :) = {string(results(index).experiment_id), ... %#ok<AGROW>
             string(results(index).mode), metrics.reference_plant_rmse_v, ...
             metrics.neural_ode_rmse_v, metrics.reference_plant_mean_absolute_error_v, ...
-            metrics.neural_ode_mean_absolute_error_v};
+            metrics.neural_ode_mean_absolute_error_v, ...
+            metrics.reference_plant_tail_mean_error_v, ...
+            metrics.neural_ode_tail_mean_error_v};
     end
     if isempty(rows)
         tableValue = table;
@@ -80,7 +82,8 @@ function tableValue = trackingMetricTable(results)
         tableValue = cell2table(rows, 'VariableNames', ...
             {'experiment_id', 'mode', 'reference_plant_rmse_v', ...
              'neural_ode_rmse_v', 'reference_plant_mean_absolute_error_v', ...
-             'neural_ode_mean_absolute_error_v'});
+             'neural_ode_mean_absolute_error_v', ...
+             'reference_plant_tail_mean_error_v', 'neural_ode_tail_mean_error_v'});
     end
 end
 
@@ -88,24 +91,47 @@ function file = saveComparisonFigure(result, outputDirectory)
     stateNames = {'i_{Lr} (A)', 'v_{Cr} (V)', 'i_{Lm} (A)', 'v_o (V)'};
     figureHandle = figure('Visible', 'off', 'Color', 'white');
     cleanup = onCleanup(@()close(figureHandle));
-    layout = tiledlayout(figureHandle, 4, 1, 'TileSpacing', 'compact');
+    plotTimes = result.times_s;
+    xLabel = 'Time (s)';
+    if isfield(result, 'evaluation_times_s') && ~isempty(result.evaluation_times_s)
+        plotTimes = result.evaluation_times_s;
+        xLabel = 'Evaluation time (s)';
+    end
+    layout = tiledlayout(figureHandle, 5, 1, 'TileSpacing', 'compact');
     for stateIndex = 1:4
         axesHandle = nexttile(layout);
-        plot(axesHandle, result.times_s, result.reference_states(:, stateIndex), ...
+        plot(axesHandle, plotTimes, result.reference_states(:, stateIndex), ...
              'LineWidth', 1.0, 'DisplayName', 'Reference');
         hold(axesHandle, 'on');
-        plot(axesHandle, result.times_s, result.predicted_states(:, stateIndex), '--', ...
+        plot(axesHandle, plotTimes, result.predicted_states(:, stateIndex), '--', ...
              'LineWidth', 1.0, 'DisplayName', 'Neural ODE');
         ylabel(axesHandle, stateNames{stateIndex});
         grid(axesHandle, 'on');
     end
-    xlabel(layout, 'Time (s)');
+    tailAxes = nexttile(layout);
+    tailWindow = defaultTailWindow(plotTimes);
+    if isfield(result, 'tail_window_s') && ~isempty(result.tail_window_s)
+        tailWindow = result.tail_window_s;
+    end
+    tail = plotTimes >= plotTimes(end) - tailWindow;
+    plot(tailAxes, plotTimes(tail), result.reference_states(tail, 4), ...
+         'LineWidth', 1.0, 'DisplayName', 'Reference');
+    hold(tailAxes, 'on');
+    plot(tailAxes, plotTimes(tail), result.predicted_states(tail, 4), '--', ...
+         'LineWidth', 1.0, 'DisplayName', 'Neural ODE');
+    ylabel(tailAxes, 'tail v_o (V)');
+    grid(tailAxes, 'on');
+    xlabel(layout, xLabel);
     title(layout, strrep(char(string(result.experiment_id)), '_', '\_'));
     legend(nexttile(layout, 1), 'Location', 'best');
     identifier = regexprep(char(string(result.experiment_id)), '[^A-Za-z0-9_-]', '_');
     file = string(fullfile(outputDirectory, [identifier, '_waveforms.png']));
     exportgraphics(figureHandle, file, 'Resolution', 150);
     clear cleanup;
+end
+
+function value = defaultTailWindow(times)
+    value = max((times(end) - times(1)) / 10, eps(max(abs(times(end)), 1)));
 end
 
 function validateOutputConfig(config)

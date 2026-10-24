@@ -21,6 +21,7 @@ function config = llc_load_neural_ode_validation_config(configFile, requireModel
         error('llc:IncompleteConfig', 'Validation config is missing: %s', strjoin(missing, ', '));
     end
     config.project_root = projectRoot;
+    requireText(config.output, 'directory');
     config.hardware_config_file = resolvePath(projectRoot, config.hardware_config_file);
     config.reference_plant.model_file = resolvePath(projectRoot, config.reference_plant.model_file);
     config.model_export.file = resolvePath(projectRoot, config.model_export.file);
@@ -32,7 +33,11 @@ function config = llc_load_neural_ode_validation_config(configFile, requireModel
     end
     config.control = referencedSection(projectRoot, config.control_config);
     config.steady_state_assessment = referencedSection(projectRoot, config.steady_state_config);
+    validateModelExport(config.model_export);
     validateSolver(config.solver);
+    validateSampling(config.comparison_sampling);
+    validateMetrics(config.metrics);
+    validateOutput(config.output);
     config.experiments = normalizeExperiments(config.experiments, projectRoot);
 end
 
@@ -77,7 +82,10 @@ function experiments = normalizeExperiments(raw, projectRoot)
 end
 
 function validateClosedLoopExperiment(value)
-    if ~isfield(value, 'condition') || ~isstruct(value.condition) || ...
+    if ~all(isfield(value, {'condition', 'startup', 'vin', 'reference'}))
+        error('llc:InvalidConfig', 'Closed-loop experiment is incomplete.');
+    end
+    if ~isstruct(value.condition) || ...
             ~isfield(value.condition, 'load_ohm') || value.condition.load_ohm ~= 2.304
         error('llc:InvalidConfig', 'Closed-loop validation requires fixed load 2.304 ohm.');
     end
@@ -89,17 +97,36 @@ function validateClosedLoopExperiment(value)
     requirePositive(value.startup, 'evaluation_duration_s');
     validateSignal(value.vin, 'linear');
     validateSignal(value.reference, 'previous');
+    validateSignalCoverage(value.vin, value.startup.evaluation_duration_s);
+    validateSignalCoverage(value.reference, value.startup.evaluation_duration_s);
     if strcmp(value.startup.mode, 'warm')
+        if ~all(isfield(value, {'preheat_vin', 'preheat_reference'}))
+            error('llc:InvalidConfig', 'Warm startup preheat signals are missing.');
+        end
         requirePositive(value.startup, 'preheat_duration_s');
         if ~all(isfield(value.startup, {'require_steady_state', 'extend_preheat_on_failure'})) || ...
                 ~islogical(value.startup.require_steady_state) || ...
+                ~value.startup.require_steady_state || ...
                 ~islogical(value.startup.extend_preheat_on_failure) || ...
                 value.startup.extend_preheat_on_failure
-            error('llc:InvalidConfig', 'Warm startup must require explicit non-extending preheat policy.');
+            error('llc:InvalidConfig', ...
+                  'Warm startup must require steady state and use a non-extending preheat policy.');
         end
-        validateSignal(value.preheat_vin, 'linear');
-        validateSignal(value.preheat_reference, 'previous');
+        validateConstantSignal(value.preheat_vin, 'preheat_vin');
+        validateConstantSignal(value.preheat_reference, 'preheat_reference');
     end
+end
+
+function validateSignalCoverage(signal, duration)
+    llc_evaluate_validation_signal(signal, [0, duration]);
+end
+
+function validateConstantSignal(signal, name)
+    if ~isstruct(signal) || ~isscalar(signal) || ~isfield(signal, 'type') || ...
+            ~strcmp(signal.type, 'constant')
+        error('llc:InvalidConfig', '%s must be a constant preheat signal.', name);
+    end
+    requirePositive(signal, 'value_v');
 end
 
 function validateSignal(signal, requiredInterpolation)
@@ -125,6 +152,80 @@ function validateSolver(solver)
     end
     for name = {'max_step_s', 'relative_tolerance', 'absolute_tolerance', 'event_time_tolerance_s'}
         requirePositive(solver, name{1});
+    end
+    if ~isfield(solver, 'fail_on_nonfinite_state') || ...
+            ~islogical(solver.fail_on_nonfinite_state) || ~isscalar(solver.fail_on_nonfinite_state) || ...
+            ~solver.fail_on_nonfinite_state
+        error('llc:InvalidConfig', 'solver.fail_on_nonfinite_state must be true.');
+    end
+    if ~isfield(solver, 'convergence_check') || ~isstruct(solver.convergence_check) || ...
+            ~isscalar(solver.convergence_check) || ...
+            ~all(isfield(solver.convergence_check, ...
+                {'enabled', 'max_step_factor', 'tolerance_factor'})) || ...
+            ~islogical(solver.convergence_check.enabled) || ...
+            ~isscalar(solver.convergence_check.enabled)
+        error('llc:InvalidConfig', 'solver.convergence_check is incomplete.');
+    end
+    refinement = [solver.convergence_check.max_step_factor, ...
+                  solver.convergence_check.tolerance_factor];
+    if any(~isfinite(refinement)) || any(refinement <= 0) || any(refinement >= 1)
+        error('llc:InvalidConfig', ...
+              'Convergence refinement factors must be between zero and one.');
+    end
+end
+
+function validateModelExport(value)
+    requireText(value, 'required_schema_version');
+    if ~strcmp(value.required_schema_version, 'llc-neural-ode-matlab-export-v1')
+        error('llc:InvalidConfig', 'Unsupported required model export schema.');
+    end
+    for name = {'load_abs_tolerance_ohm', 'consistency_abs_tolerance', ...
+                'consistency_relative_tolerance'}
+        requirePositive(value, name{1});
+    end
+end
+
+function validateSampling(value)
+    for name = {'reference_frequency_hz', 'intervals_per_cycle'}
+        requirePositive(value, name{1});
+    end
+    if value.intervals_per_cycle ~= round(value.intervals_per_cycle) || ...
+            ~isfield(value, 'state_interpolation') || ...
+            ~strcmp(value.state_interpolation, 'linear') || ...
+            ~isfield(value, 'gate_interpolation') || ...
+            ~strcmp(value.gate_interpolation, 'previous')
+        error('llc:InvalidConfig', ...
+              'Comparison sampling requires integer intervals and linear/previous interpolation.');
+    end
+end
+
+function validateMetrics(value)
+    expectedStates = ["rmse", "normalized_rmse_by_model_state_scale", ...
+                      "maximum_absolute_error", "final_absolute_error"];
+    expectedOutput = ["mean_absolute_error", "reference_tracking_rmse", "tail_mean_error"];
+    if ~isstruct(value) || ~isscalar(value) || ...
+            ~all(isfield(value, {'state_metrics', 'output_voltage_metrics', ...
+                                 'tail_window_s', 'acceptance_thresholds'})) || ...
+            ~isequal(string(value.state_metrics(:)).', expectedStates) || ...
+            ~isequal(string(value.output_voltage_metrics(:)).', expectedOutput) || ...
+            ~isempty(value.acceptance_thresholds)
+        error('llc:InvalidConfig', 'Metric declarations do not match the supported contract.');
+    end
+    requirePositive(value, 'tail_window_s');
+end
+
+function validateOutput(value)
+    required = {'directory', 'save_resolved_config', 'save_waveforms', ...
+                'save_metric_tables', 'save_figures'};
+    if ~isstruct(value) || ~isscalar(value) || ~all(isfield(value, required)) || ...
+            strlength(string(value.directory)) == 0
+        error('llc:InvalidConfig', 'Output configuration is incomplete.');
+    end
+    for index = 2:numel(required)
+        flag = value.(required{index});
+        if ~islogical(flag) || ~isscalar(flag)
+            error('llc:InvalidConfig', 'Output save switches must be logical scalars.');
+        end
     end
 end
 

@@ -13,8 +13,10 @@ function result = llc_simulate_neural_closed_loop( ...
     end
     initialGates = llc_closed_loop_controller_gates(controllerState);
     before = initialGates;
-    controllerState = llc_advance_closed_loop_controller(controllerState, times(1), ...
-        state(4), llc_evaluate_validation_signal(referenceSignal, times(1)), control);
+    if llc_closed_loop_controller_next_event(controllerState) <= times(1)
+        controllerState = llc_advance_closed_loop_controller(controllerState, times(1), ...
+            state(4), llc_evaluate_validation_signal(referenceSignal, times(1)), control);
+    end
     after = llc_closed_loop_controller_gates(controllerState);
     eventTimes = zeros(0, 1);
     gatesAfter = zeros(0, 4, 'uint8');
@@ -44,7 +46,7 @@ function result = llc_simulate_neural_closed_loop( ...
             state = values(end, :).';
         end
         currentTime = targetTime;
-        if abs(nextEvent - currentTime) <= tolerance
+        if nextEvent <= currentTime
             previousGates = llc_closed_loop_controller_gates(controllerState);
             reference = llc_evaluate_validation_signal(referenceSignal, currentTime);
             controllerState = llc_advance_closed_loop_controller( ...
@@ -55,7 +57,7 @@ function result = llc_simulate_neural_closed_loop( ...
                 gatesAfter(end + 1, :) = uint8(newGates); %#ok<AGROW>
             end
         end
-        if abs(times(sampleIndex) - currentTime) <= tolerance
+        if times(sampleIndex) <= currentTime
             states(sampleIndex, :) = state.';
             controlValues(sampleIndex, :) = controlRow(controllerState);
             sampleIndex = sampleIndex + 1;

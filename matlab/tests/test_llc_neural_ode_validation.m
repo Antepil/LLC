@@ -91,18 +91,61 @@ function testValidationConfigResolvesColdAndWarmExperiments(testCase)
     verifyEqual(testCase, config.experiments(3).startup.preheat_duration_s, 5e-3);
 end
 
+function testValidationConfigRejectsInactiveOrMisleadingDeclarations(testCase)
+    root = testCase.TestData.projectRoot;
+    base = llc_read_json(fullfile(root, 'configs', 'matlab', 'neural_ode_validation.json'));
+    invalid = base;
+    invalid.solver.convergence_check.max_step_factor = 1;
+    verifyInvalidConfig(testCase, invalid);
+    invalid = base;
+    invalid.model_export.required_schema_version = 'ignored-schema';
+    verifyInvalidConfig(testCase, invalid);
+    invalid = base;
+    invalid.comparison_sampling.state_interpolation = 'previous';
+    verifyInvalidConfig(testCase, invalid);
+    invalid = base;
+    invalid.metrics.state_metrics{1} = 'different_metric';
+    verifyInvalidConfig(testCase, invalid);
+    invalid = base;
+    invalid.output.directory = '';
+    verifyInvalidConfig(testCase, invalid);
+    invalid = base;
+    invalid.output.directory = 42;
+    verifyInvalidConfig(testCase, invalid);
+end
+
+function testValidationConfigRequiresConstantPreheatAndCoveredEvaluationSignals(testCase)
+    root = testCase.TestData.projectRoot;
+    base = llc_read_json(fullfile(root, 'configs', 'matlab', 'neural_ode_validation.json'));
+    invalid = base;
+    invalid.experiments{3}.preheat_vin = struct('type', 'time_series', ...
+        'interpolation', 'linear', 'times_s', [0, 5e-3], 'values_v', [400, 410]);
+    verifyInvalidConfig(testCase, invalid);
+    invalid = base;
+    invalid.experiments{2}.vin = struct('type', 'time_series', ...
+        'interpolation', 'linear', 'times_s', [0, 1e-3], 'values_v', [400, 410]);
+    verifyError(testCase, @()llc_load_neural_ode_validation_config( ...
+        writeJsonFixture(testCase, invalid), false), 'llc:ValidationSignalCoverage');
+end
+
 function testRecordedGateReplayUsesFreeRolloutAndComputesMetrics(testCase)
     model = gateDrivenModel;
     trajectory = struct( ...
         'schema_version', 'llc-closed-loop-fixed-grid-trajectory-v3', ...
         'trajectory_id', 'synthetic', ...
         'state_names', {{'i_Lr', 'v_Cr', 'i_Lm', 'v_o'}}, ...
+        'state_units', {{'A', 'V', 'A', 'V'}}, ...
         'gate_names', {{'Q1_A_high', 'Q2_A_low', 'Q3_B_high', 'Q4_B_low'}}, ...
         'state_times_s', [0; 0.5; 1], ...
         'state_values', [0 0 0 0; 0 0 0 0; 0.5 0 0 0], ...
         'initial_gate_values', uint8([0 0 0 0]), ...
         'gate_event_times_s', 0.5, ...
         'gate_values_after', uint8([1 0 0 0]), ...
+        'raw_gate_times_s', [0; 0.5; 1], ...
+        'raw_gate_values', uint8([0 0 0 0; 1 0 0 0; 1 0 0 0]), ...
+        'raw_state_times_s', [0; 0.5; 1], ...
+        'raw_state_values', [0 0 0 0; 0 0 0 0; 0.5 0 0 0], ...
+        'raw_simulation_stop_time_s', 1, 'effective_config', effectiveReplayConfig, ...
         'condition', struct('vin_v', 400, 'load_ohm', 2.304, 'reference_voltage_v', 48));
     solver = struct('name', 'ode23t', 'max_step_s', 0.02, ...
                     'relative_tolerance', 1e-9, 'absolute_tolerance', 1e-11, ...
@@ -114,6 +157,111 @@ function testRecordedGateReplayUsesFreeRolloutAndComputesMetrics(testCase)
     verifyEqual(testCase, result.predicted_states, trajectory.state_values, 'AbsTol', 1e-7);
     verifyEqual(testCase, result.state_metrics.rmse, zeros(1, 4), 'AbsTol', 1e-7);
     verifyEqual(testCase, result.state_metrics.normalized_rmse, zeros(1, 4), 'AbsTol', 1e-7);
+end
+
+function testRecordedGateReplayRejectsPermutedOrInconsistentContract(testCase)
+    trajectory = replayTrajectoryFixture;
+    trajectory.state_names = {'v_Cr', 'i_Lr', 'i_Lm', 'v_o'};
+    verifyError(testCase, @()llc_run_recorded_gate_replay( ...
+        gateDrivenModel, trajectory, replaySolver, replayMetrics), ...
+        'llc:InvalidValidationInput');
+    trajectory = replayTrajectoryFixture;
+    trajectory.raw_gate_values(end, :) = uint8([0 0 0 0]);
+    verifyError(testCase, @()llc_run_recorded_gate_replay( ...
+        gateDrivenModel, trajectory, replaySolver, replayMetrics), ...
+        'llc:InvalidValidationInput');
+    trajectory = replayTrajectoryFixture;
+    trajectory.raw_state_values(1, 1) = 1;
+    verifyError(testCase, @()llc_run_recorded_gate_replay( ...
+        gateDrivenModel, trajectory, replaySolver, replayMetrics), ...
+        'llc:InvalidValidationInput');
+    trajectory = replayTrajectoryFixture;
+    trajectory.effective_config.generation.simulation_stop_time_s = 2;
+    verifyError(testCase, @()llc_run_recorded_gate_replay( ...
+        gateDrivenModel, trajectory, replaySolver, replayMetrics), ...
+        'llc:InvalidValidationInput');
+    trajectory = replayTrajectoryFixture;
+    trajectory.effective_config.generation.simulation_stop_time_s = NaN;
+    trajectory.effective_config.condition.vin_v = NaN;
+    trajectory.condition.vin_v = NaN;
+    verifyError(testCase, @()llc_run_recorded_gate_replay( ...
+        gateDrivenModel, trajectory, replaySolver, replayMetrics), ...
+        'llc:InvalidValidationInput');
+end
+
+function testRecordedGateReplayRejectsInvalidRawStopTimeType(testCase)
+    trajectory = replayTrajectoryFixture;
+    trajectory.raw_simulation_stop_time_s = true;
+    verifyError(testCase, @()llc_run_recorded_gate_replay( ...
+        gateDrivenModel, trajectory, replaySolver, replayMetrics), ...
+        'llc:InvalidValidationInput');
+end
+
+function testRecordedGateReplayRejectsInvalidConfiguredStopTimeType(testCase)
+    trajectory = replayTrajectoryFixture;
+    trajectory.effective_config.generation.simulation_stop_time_s = true;
+    verifyError(testCase, @()llc_run_recorded_gate_replay( ...
+        gateDrivenModel, trajectory, replaySolver, replayMetrics), ...
+        'llc:InvalidValidationInput');
+end
+
+function testRecordedGateReplayRejectsInvalidStateTimeTypes(testCase)
+    trajectory = replayTrajectoryFixture;
+    trajectory.state_times_s = logical([0; 1]);
+    trajectory.state_values = trajectory.state_values([1, 3], :);
+    verifyError(testCase, @()llc_run_recorded_gate_replay( ...
+        gateDrivenModel, trajectory, replaySolver, replayMetrics), ...
+        'llc:InvalidValidationInput');
+
+    trajectory = replayTrajectoryFixture;
+    trajectory.raw_state_times_s = logical([0; 1]);
+    trajectory.raw_state_values = trajectory.raw_state_values([1, 3], :);
+    trajectory.state_values(2, 1) = 0.25;
+    verifyError(testCase, @()llc_run_recorded_gate_replay( ...
+        gateDrivenModel, trajectory, replaySolver, replayMetrics), ...
+        'llc:InvalidValidationInput');
+end
+
+function testRecordedGateReplayRejectsNonuniformFixedGrid(testCase)
+    trajectory = replayTrajectoryFixture;
+    trajectory.state_times_s(2) = 0.4;
+    verifyError(testCase, @()llc_run_recorded_gate_replay( ...
+        gateDrivenModel, trajectory, replaySolver, replayMetrics), ...
+        'llc:InvalidValidationInput');
+end
+
+function testRecordedGateReplayRejectsInvalidGateTimeTypes(testCase)
+    trajectory = replayTrajectoryFixture;
+    trajectory.gate_event_times_s = true;
+    trajectory.raw_gate_times_s = [0; 1];
+    trajectory.raw_gate_values = uint8([0 0 0 0; 1 0 0 0]);
+    verifyError(testCase, @()llc_run_recorded_gate_replay( ...
+        gateDrivenModel, trajectory, replaySolver, replayMetrics), ...
+        'llc:InvalidValidationInput');
+
+    trajectory = replayTrajectoryFixture;
+    trajectory.gate_event_times_s = 1;
+    trajectory.raw_gate_times_s = logical([0; 1]);
+    trajectory.raw_gate_values = uint8([0 0 0 0; 1 0 0 0]);
+    verifyError(testCase, @()llc_run_recorded_gate_replay( ...
+        gateDrivenModel, trajectory, replaySolver, replayMetrics), ...
+        'llc:InvalidValidationInput');
+end
+
+function testRecordedGateReplayRejectsRawStateCoverageGap(testCase)
+    trajectory = replayTrajectoryFixture;
+    trajectory.raw_state_times_s(1) = eps;
+    verifyError(testCase, @()llc_run_recorded_gate_replay( ...
+        gateDrivenModel, trajectory, replaySolver, replayMetrics), ...
+        'llc:InvalidValidationInput');
+end
+
+function testRecordedGateReplayRejectsRawGateCoverageGap(testCase)
+    trajectory = replayTrajectoryFixture;
+    trajectory.raw_gate_times_s(1) = eps;
+    verifyError(testCase, @()llc_run_recorded_gate_replay( ...
+        gateDrivenModel, trajectory, replaySolver, replayMetrics), ...
+        'llc:InvalidValidationInput');
 end
 
 function testControllerStartsOffThenAppliesDeadtimeAndAlternatingPairs(testCase)
@@ -156,18 +304,70 @@ function testControllerStateCanBeReconstructedFromReferenceWaveform(testCase)
     solver = shortSolver;
     vin = struct('type', 'constant', 'value_v', 400);
     reference = struct('type', 'constant', 'value_v', 48);
-    times = (0:1e-6:20e-6).';
+    times = (0:1e-6:40e-6).';
     source = llc_simulate_neural_closed_loop(model, zeros(4, 1), ...
         llc_initialize_closed_loop_controller(control), times, vin, reference, control, solver);
     replay = llc_reconstruct_closed_loop_controller(times, source.states(:, 4), ...
         source.initial_gate_values, source.gate_event_times_s, source.gate_values_after, ...
-        reference, control, times(end), solver.event_time_tolerance_s);
-    verifyEqual(testCase, replay.gate_event_times_s, source.gate_event_times_s, 'AbsTol', 1e-12);
-    verifyEqual(testCase, replay.gate_values_after, source.gate_values_after);
+        source.times_s, source.control_values, ...
+        reference, control, 20e-6, solver.event_time_tolerance_s);
+    historical = source.gate_event_times_s <= 20e-6;
+    verifyEqual(testCase, replay.gate_event_times_s, ...
+                source.gate_event_times_s(historical), 'AbsTol', 1e-12);
+    verifyEqual(testCase, replay.gate_values_after, source.gate_values_after(historical, :));
+    expectedControl = source.control_values(times == 20e-6, :);
+    verifyEqual(testCase, replay.final_state.frequency_hz, expectedControl(1), 'AbsTol', 1e-9);
+    verifyEqual(testCase, replay.final_state.integral_v_s, expectedControl(5), 'AbsTol', 1e-14);
+end
+
+function testControllerReplayOrdersCoincidentEdgeBeforeControlUpdate(testCase)
+    model = constantDerivativeModel;
+    model.network.biases = {zeros(4, 1)};
+    control = controllerFixture;
+    control.initial_frequency_hz = 50e3;
+    control.bias_frequency_hz = 50e3;
+    control.proportional_gain_hz_per_v = 1e-9;
+    control.integral_gain_hz_per_v_s = 1e-9;
+    vin = struct('type', 'constant', 'value_v', 400);
+    reference = struct('type', 'constant', 'value_v', 48);
+    times = [0; 10e-6; 10.2e-6; 20e-6; 20.2e-6; 30e-6];
+    source = llc_simulate_neural_closed_loop(model, zeros(4, 1), ...
+        llc_initialize_closed_loop_controller(control), times, vin, reference, control, shortSolver);
+    replay = llc_reconstruct_closed_loop_controller(times, source.states(:, 4), ...
+        source.initial_gate_values, source.gate_event_times_s, source.gate_values_after, ...
+        source.times_s, source.control_values, reference, control, 10.2e-6, 1e-12);
+    verifyEqual(testCase, replay.gate_event_times_s(end-1:end), [10e-6; 10.2e-6], ...
+                'AbsTol', 1e-12);
+    verifyEqual(testCase, replay.gate_values_after(end-1, :), uint8([0 0 0 0]));
+    verifyEqual(testCase, replay.gate_values_after(end, :), uint8([0 1 1 0]));
     verifyEqual(testCase, replay.final_state.frequency_hz, ...
-                source.final_controller_state.frequency_hz, 'AbsTol', 1e-9);
-    verifyEqual(testCase, replay.final_state.integral_v_s, ...
-                source.final_controller_state.integral_v_s, 'AbsTol', 1e-14);
+                source.control_values(3, 1), 'AbsTol', 1e-6);
+end
+
+function testControllerReplayNeverConsumesNearFutureHandoffEvent(testCase)
+    model = constantDerivativeModel;
+    model.network.biases = {zeros(4, 1)};
+    control = controllerFixture;
+    control.initial_frequency_hz = 50e3;
+    control.bias_frequency_hz = 50e3;
+    control.proportional_gain_hz_per_v = 1e-9;
+    control.integral_gain_hz_per_v_s = 1e-9;
+    vin = struct('type', 'constant', 'value_v', 400);
+    reference = struct('type', 'constant', 'value_v', 48);
+    handoff = 10e-6 - 5e-15;
+    times = [0; handoff; 10e-6; 10.2e-6; 15e-6];
+    source = llc_simulate_neural_closed_loop(model, zeros(4, 1), ...
+        llc_initialize_closed_loop_controller(control), times, vin, reference, control, shortSolver);
+    replay = llc_reconstruct_closed_loop_controller(times, source.states(:, 4), ...
+        source.initial_gate_values, source.gate_event_times_s, source.gate_values_after, ...
+        source.times_s, source.control_values, reference, control, handoff, 1e-12);
+    verifyEqual(testCase, replay.final_state.last_time_s, handoff, 'AbsTol', 0);
+    verifyEqual(testCase, replay.final_state.next_edge_time_s, 10e-6, 'AbsTol', 1e-14);
+    verifyLessThan(testCase, replay.gate_event_times_s(end), handoff);
+    continuation = llc_simulate_neural_closed_loop(model, source.states(2, :).', ...
+        replay.final_state, times(2:end), vin, reference, control, shortSolver);
+    verifyEqual(testCase, continuation.gate_event_times_s(1), 10e-6, 'AbsTol', 1e-14);
+    verifyGreaterThan(testCase, continuation.gate_event_times_s(1), handoff);
 end
 
 function testReferenceClosedLoopRunsWithValidationSignals(testCase)
@@ -177,15 +377,18 @@ function testReferenceClosedLoopRunsWithValidationSignals(testCase)
     vin = struct('type', 'constant', 'value_v', 400);
     reference = struct('type', 'constant', 'value_v', 48);
     result = llc_simulate_reference_closed_loop(hardware, modelFile, zeros(1, 4), ...
-        (0:1e-6:20e-6).', vin, reference, controllerFixture, shortSolver);
-    verifySize(testCase, result.states, [21, 4]);
-    verifyEqual(testCase, result.times_s([1, end]), [0; 20e-6], 'AbsTol', 1e-12);
+        (0:1e-6:40e-6).', vin, reference, controllerFixture, shortSolver);
+    verifySize(testCase, result.states, [41, 4]);
+    verifyEqual(testCase, result.times_s([1, end]), [0; 40e-6], 'AbsTol', 1e-12);
     verifyGreaterThan(testCase, numel(result.gate_event_times_s), 1);
     replay = llc_reconstruct_closed_loop_controller( ...
         result.raw_state_times_s, result.raw_state_values(:, 4), ...
         result.initial_gate_values, result.gate_event_times_s, result.gate_values_after, ...
+        result.raw_control_times_s, result.raw_control_values, ...
         reference, controllerFixture, 20e-6, 1e-12);
-    verifyEqual(testCase, replay.gate_event_times_s, result.gate_event_times_s, 'AbsTol', 1e-12);
+    historical = result.gate_event_times_s <= 20e-6;
+    verifyEqual(testCase, replay.gate_event_times_s, ...
+                result.gate_event_times_s(historical), 'AbsTol', 1e-12);
 end
 
 function testColdIndependentClosedLoopComparesSeparateBranches(testCase)
@@ -206,6 +409,9 @@ function testColdIndependentClosedLoopComparesSeparateBranches(testCase)
     verifySize(testCase, result.reference_states, [21, 4]);
     verifySize(testCase, result.predicted_states, [21, 4]);
     verifyTrue(testCase, all(isfinite(result.state_metrics.rmse)));
+    verifyTrue(testCase, all(isfinite([ ...
+        result.tracking_metrics.reference_plant_tail_mean_error_v, ...
+        result.tracking_metrics.neural_ode_tail_mean_error_v])));
 end
 
 function testWarmIndependentClosedLoopHandsOffCompleteState(testCase)
@@ -214,16 +420,16 @@ function testWarmIndependentClosedLoopHandsOffCompleteState(testCase)
     modelFile = fullfile(root, 'matlab', 'models', 'llc_full_bridge_closed_loop.slx');
     model = constantDerivativeModel;
     model.network.biases = {zeros(4, 1)};
-    experiment = warmExperiment(false);
+    experiment = warmExperiment(true);
     result = llc_run_independent_closed_loop(model, hardware, modelFile, experiment, ...
-        controllerFixture, shortSteadyConfig, shortSolver, shortSampling, ...
+        controllerFixture, permissiveShortSteadyConfig, shortSolver, shortSampling, ...
         struct('tail_window_s', 2e-6, 'acceptance_thresholds', []));
     verifyEqual(testCase, result.startup_mode, 'warm');
-    verifyEqual(testCase, result.times_s([1, end]), [20e-6; 25e-6], 'AbsTol', 1e-12);
-    verifyEqual(testCase, result.evaluation_times_s([1, end]), [0; 5e-6], 'AbsTol', 1e-12);
-    verifySize(testCase, result.reference_states, [6, 4]);
-    verifySize(testCase, result.predicted_states, [6, 4]);
-    verifyFalse(testCase, result.steady_state_assessment.settled);
+    verifyEqual(testCase, result.times_s([1, end]), [20e-6; 35e-6], 'AbsTol', 1e-12);
+    verifyEqual(testCase, result.evaluation_times_s([1, end]), [0; 15e-6], 'AbsTol', 1e-12);
+    verifySize(testCase, result.reference_states, [16, 4]);
+    verifySize(testCase, result.predicted_states, [16, 4]);
+    verifyTrue(testCase, result.steady_state_assessment.settled);
 end
 
 function testWarmIndependentClosedLoopRejectsUnsettledPreheat(testCase)
@@ -277,7 +483,7 @@ end
 
 function experiment = warmExperiment(requireSteady)
     experiment = struct('startup', struct('mode', 'warm', ...
-        'preheat_duration_s', 20e-6, 'evaluation_duration_s', 5e-6, ...
+        'preheat_duration_s', 20e-6, 'evaluation_duration_s', 15e-6, ...
         'require_steady_state', requireSteady), ...
         'condition', struct('load_ohm', 2.304), ...
         'preheat_vin', struct('type', 'constant', 'value_v', 400), ...
@@ -293,8 +499,56 @@ function config = shortSteadyConfig
         'ripple_floor_relative_scale', 0.01, 'minimum_cycles_per_half_window', 1);
 end
 
+function config = permissiveShortSteadyConfig
+    config = shortSteadyConfig;
+    config.window_duration_s = 20e-6;
+    config.output_relative_tolerance = 100;
+    config.state_mean_relative_tolerance = 1e6;
+    config.ripple_relative_tolerance = 1e6;
+    config.ripple_floor_relative_scale = 1e6;
+end
+
 function sampling = shortSampling
     sampling = struct('reference_frequency_hz', 1e6, 'intervals_per_cycle', 1);
+end
+
+function trajectory = replayTrajectoryFixture
+    trajectory = struct( ...
+        'schema_version', 'llc-closed-loop-fixed-grid-trajectory-v3', ...
+        'trajectory_id', 'synthetic', ...
+        'state_names', {{'i_Lr', 'v_Cr', 'i_Lm', 'v_o'}}, ...
+        'state_units', {{'A', 'V', 'A', 'V'}}, ...
+        'gate_names', {{'Q1_A_high', 'Q2_A_low', 'Q3_B_high', 'Q4_B_low'}}, ...
+        'state_times_s', [0; 0.5; 1], ...
+        'state_values', [0 0 0 0; 0 0 0 0; 0.5 0 0 0], ...
+        'initial_gate_values', uint8([0 0 0 0]), ...
+        'gate_event_times_s', 0.5, ...
+        'gate_values_after', uint8([1 0 0 0]), ...
+        'raw_gate_times_s', [0; 0.5; 1], ...
+        'raw_gate_values', uint8([0 0 0 0; 1 0 0 0; 1 0 0 0]), ...
+        'raw_state_times_s', [0; 0.5; 1], ...
+        'raw_state_values', [0 0 0 0; 0 0 0 0; 0.5 0 0 0], ...
+        'raw_simulation_stop_time_s', 1, 'effective_config', effectiveReplayConfig, ...
+        'condition', struct('vin_v', 400, 'load_ohm', 2.304, ...
+                            'reference_voltage_v', 48));
+end
+
+function config = effectiveReplayConfig
+    condition = struct('vin_v', 400, 'load_ohm', 2.304, ...
+                       'reference_voltage_v', 48);
+    config = struct('generation', struct('simulation_stop_time_s', 1), ...
+                    'condition', condition);
+end
+
+function solver = replaySolver
+    solver = struct('name', 'ode23t', 'max_step_s', 0.02, ...
+        'relative_tolerance', 1e-9, 'absolute_tolerance', 1e-11, ...
+        'event_time_tolerance_s', 1e-12, 'fail_on_nonfinite_state', true, ...
+        'convergence_check', struct('enabled', false));
+end
+
+function metrics = replayMetrics
+    metrics = struct('tail_window_s', 0.4, 'acceptance_thresholds', []);
 end
 
 function file = writeValidationConfigFixture(testCase, modelFile, outputDirectory)
@@ -314,9 +568,12 @@ function file = writeValidationConfigFixture(testCase, modelFile, outputDirector
         'vin', struct('type', 'constant', 'value_v', 400), ...
         'reference', struct('type', 'constant', 'value_v', 48));
     config.comparison_sampling = shortSampling;
+    config.comparison_sampling.state_interpolation = 'linear';
+    config.comparison_sampling.gate_interpolation = 'previous';
     config.solver = shortSolver;
     config.solver.fail_on_nonfinite_state = true;
-    config.solver.convergence_check = struct('enabled', false);
+    config.solver.convergence_check = struct('enabled', false, ...
+        'max_step_factor', 0.5, 'tolerance_factor', 0.1);
     file = [tempname, '.json'];
     testCase.addTeardown(@()deleteIfPresent(file));
     stream = fopen(file, 'w');
@@ -325,6 +582,24 @@ function file = writeValidationConfigFixture(testCase, modelFile, outputDirector
     end
     cleanup = onCleanup(@()fclose(stream));
     fprintf(stream, '%s', jsonencode(config, 'PrettyPrint', true));
+    clear cleanup;
+end
+
+function verifyInvalidConfig(testCase, config)
+    file = writeJsonFixture(testCase, config);
+    verifyError(testCase, @()llc_load_neural_ode_validation_config(file, false), ...
+                'llc:InvalidConfig');
+end
+
+function file = writeJsonFixture(testCase, value)
+    file = [tempname, '.json'];
+    testCase.addTeardown(@()deleteIfPresent(file));
+    stream = fopen(file, 'w');
+    if stream < 0
+        error('llc:TestFixture', 'Could not create temporary JSON fixture.');
+    end
+    cleanup = onCleanup(@()fclose(stream));
+    fprintf(stream, '%s', jsonencode(value, 'PrettyPrint', true));
     clear cleanup;
 end
 
