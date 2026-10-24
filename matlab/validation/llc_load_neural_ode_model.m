@@ -1,10 +1,21 @@
-function model = llc_load_neural_ode_model(file, expectedLoadOhm, loadToleranceOhm)
+function model = llc_load_neural_ode_model( ...
+        file, expectedLoadOhm, loadToleranceOhm, consistencyAbsTolerance, consistencyRelTolerance)
     % LLC_LOAD_NEURAL_ODE_MODEL Load and validate a Python-exported vector field.
     if nargin < 2
         expectedLoadOhm = [];
     end
     if nargin < 3
         loadToleranceOhm = 1e-9;
+    end
+    if nargin < 4
+        consistencyAbsTolerance = 1e-12;
+    end
+    if nargin < 5
+        consistencyRelTolerance = 1e-12;
+    end
+    tolerances = [loadToleranceOhm, consistencyAbsTolerance, consistencyRelTolerance];
+    if any(~isfinite(tolerances)) || any(tolerances < 0)
+        error('llc:InvalidArgument', 'Model loading tolerances must be finite and nonnegative.');
     end
     if ~(ischar(file) || (isstring(file) && isscalar(file))) || ~isfile(file)
         error('llc:MissingModelExport', 'Neural ODE model export does not exist: %s', string(file));
@@ -57,6 +68,12 @@ function model = llc_load_neural_ode_model(file, expectedLoadOhm, loadToleranceO
                    'load_resistance_ohm', modelLoad, ...
                    'dtype', scalarText(raw.dtype), ...
                    'consistency_inputs', inputs, 'consistency_outputs', outputs);
+    actual = llc_neural_ode_forward(model, inputs);
+    if any(abs(actual - outputs) > ...
+            consistencyAbsTolerance + consistencyRelTolerance .* abs(outputs), 'all')
+        error('llc:ModelConsistencyMismatch', ...
+              'Native MATLAB network output does not match the exported consistency fixture.');
+    end
 end
 
 function network = validateNetwork(value)

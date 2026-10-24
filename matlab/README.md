@@ -98,6 +98,69 @@ setup_paths;
 报告包含四个文件：轨迹汇总 CSV、状态统计 CSV、控制量统计 CSV，以及保存完整配置和上述表格的 MAT
 文件。默认文件名前缀和检查阈值都在 `dataset_validation.json` 中配置。
 
+## Neural ODE 仿真验证
+
+验证入口将 Python 训练出的向量场导出为 MAT 文件，之后网络前向、`ode23t` 积分、门极事件处理、
+PI/PFM 控制、Simulink 参考电路和报告生成均在 MATLAB 中运行。首版模型固定负载为 2.304 Ω；负载不是
+网络输入，模型、轨迹或闭环工况不一致时会直接报错。
+
+先在已安装项目包的 Python 环境中导出可信 checkpoint：
+
+```bash
+python scripts/export_matlab_model.py \
+  artifacts/checkpoints/selected.ckpt \
+  artifacts/models/llc_neural_ode/model_export.mat
+```
+
+导出文件包含 Linear + SiLU 网络、四状态尺度、Vin 与时间基准、固定负载以及 Python 前向结果样例。
+MATLAB 加载时会执行原生前向并按配置容差核对样例；这只验证接口和数值一致性，不代表波形预测准确。
+
+配置入口是 `configs/matlab/neural_ode_validation.json`。模型与参考轨迹产物默认不提交 Git。文件准备好后：
+
+```matlab
+addpath('matlab');
+setup_paths;
+[report, files] = llc_run_neural_ode_validation();
+```
+
+默认运行三类实验：记录门极自由回放、400 V/48 V/2.304 Ω 的 5 ms 冷启动独立闭环，以及 5 ms
+参考电路预热后再评估 5 ms 的独立闭环。两条独立闭环支路拥有各自的滤波器、PI、PFM 相位和事件队列，
+并分别反馈自己的输出。冷启动从零电路状态和控制器初值开始；预热模式只用参考电路预热，交接四个电路
+状态和完整控制/调度状态后才启动 Neural ODE 支路。预热必须在指定时刻通过周期稳态检查；失败时报
+`llc:PreheatNotSettled`，不会自动延长或把未稳态结果当作预热启动。
+
+Vin 支持常量和线性插值序列：
+
+```json
+{"type":"time_series","interpolation":"linear",
+ "times_s":[0,0.002,0.005],"values_v":[400,420,390]}
+```
+
+目标电压支持常量和前值保持阶跃：
+
+```json
+{"type":"time_series","interpolation":"previous",
+ "times_s":[0,0.001,0.005],"values_v":[48,50,46]}
+```
+
+时间必须严格递增、数值有限且电压为正，序列必须覆盖整个所属阶段，禁止外推。冷启动的序列时间从仿真
+开始计；预热实验中的 `preheat_vin/preheat_reference` 属于预热阶段，`vin/reference` 使用交接后的局部
+评估时间，从 0 开始。交接后控制器的绝对时间、参考斜坡进度、PFM 相位和待处理事件保持连续，不会重启。
+如果评估信号在局部时间 0 的值不同于预热信号末值，扰动就在交接时刻生效。
+
+输出目录由 `output.directory` 决定。根据四个保存开关生成：
+
+- `validation_results.mat`：对齐后的参考/预测波形、控制分支、稳态判定和完整指标。
+- `resolved_config.mat`：包含解析后绝对路径及被引用控制/稳态配置的生效配置。
+- `state_metrics.csv`：每个状态的 RMSE、模型尺度归一化 RMSE、最大及末值绝对误差。
+- `tracking_metrics.csv`：独立闭环两条支路各自相对目标电压的 RMSE 和平均绝对误差。
+- `<experiment_id>_waveforms.png`：四状态全程对比图。
+
+同门极回放使用记录的准确跳变时刻，全程自由滚动，不注入参考状态。独立闭环的门极可能因反馈差异而
+分叉，因此其波形差异同时包含模型误差和闭环反馈效应。当前没有模型精度通过阈值；应先查看真实模型
+结果再确定。配置中的收敛复算目前用于回放实验，冷/热独立闭环尚不自动做第二套容差复算。该流程也不
+构成器件额定值、ZVS 或硬件安全认证。
+
 ## 独立的 Vin/Vref 正弦激励数据
 
 正弦激励流程与上述固定工况闭环流程使用同一个

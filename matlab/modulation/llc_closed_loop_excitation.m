@@ -19,6 +19,16 @@ end
 
 function outputs(block)
     excitation = block.DialogPrm(1).Data;
-    block.OutputPort(1).Data = ...
-        llc_evaluate_sinusoidal_excitation(block.CurrentTime, excitation);
+    if isfield(excitation, 'validation_schema_version')
+        if ~strcmp(excitation.validation_schema_version, 'llc-validation-excitation-v1') || ...
+                ~all(isfield(excitation, {'vin', 'reference'}))
+            error('llc:InvalidExcitation', 'Validation excitation is incomplete.');
+        end
+        block.OutputPort(1).Data = [ ...
+            llc_evaluate_validation_signal(excitation.vin, block.CurrentTime), ...
+            llc_evaluate_validation_signal(excitation.reference, block.CurrentTime)];
+    else
+        block.OutputPort(1).Data = ...
+            llc_evaluate_sinusoidal_excitation(block.CurrentTime, excitation);
+    end
 end

@@ -86,6 +86,10 @@ MATLAB 目录已包含 LLC Simulink 模型、开环原始轨迹入口和闭环 P
 [`matlab/README.md`](matlab/README.md)。Python 训练功能仍未实现。
 .gitkeep 仅用于让 Git 保留其余空目录。
 
+已训练模型可通过 `scripts/export_matlab_model.py` 导出为原生 MATLAB 网络契约，再由
+`llc_run_neural_ode_validation` 执行准确门极回放、冷启动和预热交接后的独立闭环对照。配置、信号时间轴、
+运行步骤与产物说明见 [`matlab/README.md`](matlab/README.md#neural-ode-仿真验证)。
+
 ### Closed-loop frequency policy
 
 The closed-loop PI has no configured minimum/maximum frequency and no saturation
