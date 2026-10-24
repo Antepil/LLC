@@ -1,3 +1,6 @@
 # CUDA 13.0 构建；本项目训练设备为 NVIDIA GPU。
 --index-url https://download.pytorch.org/whl/cu130
+--extra-index-url https://pypi.org/simple
+numpy>=1.26,<3
+scipy>=1.15,<2
 torch==2.14.1+cu130
