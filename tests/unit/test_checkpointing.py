@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import random
 import tempfile
 import unittest
@@ -212,7 +213,9 @@ class CheckpointSaveTests(unittest.TestCase):
                 "schema_version",
                 "model_state",
                 "optimizer_state",
+                "optimizer_type",
                 "scheduler_state",
+                "scheduler_type",
                 "epoch",
                 "global_step",
                 "metrics",
@@ -377,12 +380,23 @@ class CheckpointSaveTests(unittest.TestCase):
         config = self.config(k=1)
         config.directory.mkdir(parents=True)
         manifest_path = config.directory / "index.json"
+        policy = {
+            "monitor_key": "test_mean_score",
+            "mode": "max",
+            "k": 1,
+            "format_str": (
+                "epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt"
+            ),
+        }
         cases = (
             b"not json",
-            json.dumps({"schema_version": 2, "entries": []}).encode(),
+            json.dumps(
+                {"schema_version": 2, "policy": policy, "entries": []}
+            ).encode(),
             json.dumps(
                 {
                     "schema_version": 1,
+                    "policy": policy,
                     "entries": [
                         {
                             "filename": "missing.ckpt",
@@ -413,6 +427,14 @@ class CheckpointSaveTests(unittest.TestCase):
             "epoch": 1,
             "global_step": 1,
         }
+        policy = {
+            "monitor_key": "test_mean_score",
+            "mode": "max",
+            "k": 2,
+            "format_str": (
+                "epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt"
+            ),
+        }
         cases = (
             [valid_entry, valid_entry],
             [{**valid_entry, "filename": "../one.ckpt"}],
@@ -426,7 +448,13 @@ class CheckpointSaveTests(unittest.TestCase):
         for entries in cases:
             with self.subTest(entries=entries):
                 manifest_path.write_text(
-                    json.dumps({"schema_version": 1, "entries": entries})
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "policy": policy,
+                            "entries": entries,
+                        }
+                    )
                 )
                 with self.assertRaises(ValueError):
                     CheckpointManager(config)
@@ -460,6 +488,117 @@ class CheckpointSaveTests(unittest.TestCase):
             (config.directory / "index.json").read_bytes(), previous_manifest
         )
         self.assertEqual(list(config.directory.glob("*.tmp")), [])
+
+    def test_last_or_manifest_publish_failure_rolls_back_all_files(self) -> None:
+        for failing_name in ("last.ckpt", "index.json"):
+            with self.subTest(failing_name=failing_name):
+                case_root = self.project_root / failing_name.replace(".", "-")
+                case_root.mkdir()
+                mapping = checkpoint_mapping(directory="checkpoints")
+                config = CheckpointConfig.from_mapping(mapping, project_root=case_root)
+                manager = CheckpointManager(config)
+                self.save(manager, epoch=1, score=1.0)
+                previous = {
+                    path.name: path.read_bytes()
+                    for path in config.directory.iterdir()
+                    if path.is_file()
+                }
+                real_replace = os.replace
+                failed = False
+
+                def fail_once(source: object, destination: object) -> None:
+                    nonlocal failed
+                    if Path(destination).name == failing_name and not failed:
+                        failed = True
+                        raise OSError(f"injected {failing_name} failure")
+                    real_replace(source, destination)
+
+                with patch(
+                    "llc_dynamics.support.checkpointing.os.replace",
+                    side_effect=fail_once,
+                ):
+                    with self.assertRaisesRegex(OSError, "injected"):
+                        self.save(manager, epoch=2, score=2.0)
+
+                current = {
+                    path.name: path.read_bytes()
+                    for path in config.directory.iterdir()
+                    if path.is_file()
+                }
+                self.assertEqual(current, previous)
+                CheckpointManager(config)
+
+    def test_prune_cleanup_failure_keeps_committed_manifest_restartable(self) -> None:
+        config = self.config(k=1)
+        manager = CheckpointManager(config)
+        self.save(manager, epoch=1, score=1.0)
+        old_path = config.directory / "epoch=0001-test_mean_score=1.000.ckpt"
+        real_unlink = Path.unlink
+
+        def fail_old_checkpoint(path: Path, *args: object, **kwargs: object) -> None:
+            if path == old_path:
+                raise OSError("injected prune failure")
+            real_unlink(path, *args, **kwargs)
+
+        with patch.object(Path, "unlink", autospec=True, side_effect=fail_old_checkpoint):
+            self.save(manager, epoch=2, score=2.0)
+
+        restarted = CheckpointManager(config)
+        self.assertEqual(
+            [entry["metric"] for entry in self.manifest(config)["entries"]], [2.0]
+        )
+        self.assertIsInstance(restarted, CheckpointManager)
+        self.assertTrue(
+            (config.directory / "epoch=0002-test_mean_score=2.000.ckpt").is_file()
+        )
+
+    def test_invalid_run_config_cannot_replace_existing_recovery_points(self) -> None:
+        config = self.config(k=1)
+        manager = CheckpointManager(config)
+        self.save(manager, epoch=1, score=1.0)
+        previous = {
+            path.name: path.read_bytes()
+            for path in config.directory.iterdir()
+            if path.is_file()
+        }
+
+        with self.assertRaisesRegex(ValueError, "model"):
+            manager.save(
+                model=self.model,
+                optimizer=self.optimizer,
+                epoch=2,
+                global_step=20,
+                metrics={"test_mean_score": 2.0},
+                run_config={},
+            )
+
+        self.assertEqual(
+            {
+                path.name: path.read_bytes()
+                for path in config.directory.iterdir()
+                if path.is_file()
+            },
+            previous,
+        )
+
+    def test_restart_rejects_changed_ranking_policy(self) -> None:
+        config = self.config()
+        self.save(CheckpointManager(config), epoch=1, score=100.0)
+        changed_mapping = checkpoint_mapping()
+        changed_topk = changed_mapping["checkpoint"]["topk"]  # type: ignore[index]
+        changed_topk.update(  # type: ignore[union-attr]
+            {
+                "monitor_key": "loss",
+                "mode": "min",
+                "format_str": "epoch={epoch:04d}-loss={loss:.3f}.ckpt",
+            }
+        )
+        changed = CheckpointConfig.from_mapping(
+            changed_mapping, project_root=self.project_root
+        )
+
+        with self.assertRaisesRegex(ValueError, "policy"):
+            CheckpointManager(changed)
 
 
 class CheckpointLoadTests(unittest.TestCase):
@@ -626,7 +765,7 @@ class CheckpointLoadTests(unittest.TestCase):
         optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
         original_state = deepcopy(model.state_dict())
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises((ValueError, RuntimeError)):
             self.manager.load(
                 path,
                 model=model,
@@ -698,6 +837,98 @@ class CheckpointLoadTests(unittest.TestCase):
                         expected_run_config=expected,
                         map_location="cpu",
                     )
+
+    def test_rejects_different_optimizer_type_before_training_resumes(self) -> None:
+        path, _ = self.save_checkpoint(scheduler=None)
+        model = nn.Linear(2, 1)
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+
+        with self.assertRaisesRegex(ValueError, "optimizer type"):
+            self.manager.load(
+                path,
+                model=model,
+                optimizer=optimizer,
+                expected_run_config=self.run_config,
+                map_location="cpu",
+            )
+
+    def test_rejects_different_or_malformed_scheduler_state(self) -> None:
+        path, payload = self.save_checkpoint(scheduler=object())
+        model = nn.Linear(2, 1)
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+        different_scheduler = torch.optim.lr_scheduler.ExponentialLR(
+            optimizer, gamma=0.5
+        )
+        with self.assertRaisesRegex(ValueError, "scheduler type"):
+            self.manager.load(
+                path,
+                model=model,
+                optimizer=optimizer,
+                scheduler=different_scheduler,
+                expected_run_config=self.run_config,
+                map_location="cpu",
+            )
+
+        payload["scheduler_state"] = {}
+        malformed_path = self.write_payload(payload, "empty-scheduler.ckpt")
+        model, optimizer, scheduler = self.training_objects()
+        with self.assertRaisesRegex(ValueError, "scheduler state"):
+            self.manager.load(
+                malformed_path,
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                expected_run_config=self.run_config,
+                map_location="cpu",
+            )
+
+    def test_rejects_optimizer_tensor_shape_mismatch(self) -> None:
+        _, payload = self.save_checkpoint(scheduler=None)
+        first_state = next(iter(payload["optimizer_state"]["state"].values()))
+        first_state["exp_avg"] = torch.zeros(3)
+        path = self.write_payload(payload, "bad-optimizer-shape.ckpt")
+        model, optimizer, _ = self.training_objects()
+
+        with self.assertRaisesRegex(ValueError, "optimizer state"):
+            self.manager.load(
+                path,
+                model=model,
+                optimizer=optimizer,
+                expected_run_config=self.run_config,
+                map_location="cpu",
+            )
+
+    def test_restored_adam_produces_same_next_training_step(self) -> None:
+        source_model, source_optimizer, _ = self.training_objects()
+        self.populate_optimizer(source_model, source_optimizer)
+        self.manager.save(
+            model=source_model,
+            optimizer=source_optimizer,
+            epoch=1,
+            global_step=1,
+            metrics={"test_mean_score": 1.0},
+            run_config=self.run_config,
+        )
+        restored_model, restored_optimizer, _ = self.training_objects()
+        self.manager.load_last(
+            model=restored_model,
+            optimizer=restored_optimizer,
+            expected_run_config=self.run_config,
+            map_location="cpu",
+            restore_rng=False,
+        )
+
+        for model, optimizer in (
+            (source_model, source_optimizer),
+            (restored_model, restored_optimizer),
+        ):
+            optimizer.zero_grad()
+            model(torch.tensor([[0.5, 1.5]])).square().sum().backward()
+            optimizer.step()
+
+        self.assert_nested_equal(
+            restored_model.state_dict(), source_model.state_dict()
+        )
 
 
 if __name__ == "__main__":

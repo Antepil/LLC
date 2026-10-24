@@ -22,6 +22,11 @@ _PAYLOAD_SCHEMA_VERSION = 1
 _MANIFEST_SCHEMA_VERSION = 1
 
 
+def _qualified_type(value: Any) -> str:
+    value_type = type(value)
+    return f"{value_type.__module__}.{value_type.__qualname__}"
+
+
 def _require_exact_keys(
     config: Mapping[str, Any], expected: set[str], *, section: str
 ) -> None:
@@ -277,6 +282,7 @@ class CheckpointManager:
         normalized_metrics = self._validate_metrics(metrics)
         if not isinstance(run_config, Mapping):
             raise TypeError("run_config must be a mapping")
+        self._validate_run_config_contract(run_config, name="run_config")
         if scheduler is not None and not callable(getattr(scheduler, "state_dict", None)):
             raise TypeError("scheduler must provide state_dict()")
 
@@ -305,7 +311,9 @@ class CheckpointManager:
             "schema_version": _PAYLOAD_SCHEMA_VERSION,
             "model_state": model.state_dict(),
             "optimizer_state": optimizer.state_dict(),
+            "optimizer_type": _qualified_type(optimizer),
             "scheduler_state": None if scheduler is None else scheduler.state_dict(),
+            "scheduler_type": None if scheduler is None else _qualified_type(scheduler),
             "epoch": epoch,
             "global_step": global_step,
             "metrics": normalized_metrics,
@@ -320,7 +328,7 @@ class CheckpointManager:
         retained = existing is not None or self._qualifies(candidate)
         old_entries = list(self._entries)
         pruned: _RankedEntry | None = None
-        wrote_new_ranked = False
+        staged: list[tuple[Path, Path]] = []
         try:
             if retained:
                 if existing is None:
@@ -328,22 +336,35 @@ class CheckpointManager:
                 self._entries.sort(key=self._ranking_key)
                 if len(self._entries) > self.config.topk.k:
                     pruned = self._entries.pop()
-                self._atomic_torch_save(payload, ranked_path)
-                wrote_new_ranked = existing is None
-
-            last_path = self.config.directory / "last.ckpt"
-            if self.config.save_last_ckpt:
-                self._atomic_torch_save(payload, last_path)
 
             if retained:
-                self._write_manifest()
-                if pruned is not None and pruned.filename != filename:
-                    (self.config.directory / pruned.filename).unlink()
+                staged.append((self._stage_torch_save(payload, ranked_path), ranked_path))
+            last_path = self.config.directory / "last.ckpt"
+            if self.config.save_last_ckpt:
+                staged.append((self._stage_torch_save(payload, last_path), last_path))
+            if retained:
+                staged.append(
+                    (
+                        self._stage_bytes_write(
+                            self._manifest_bytes(), self._manifest_path
+                        ),
+                        self._manifest_path,
+                    )
+                )
+            self._publish_transaction(staged)
         except BaseException:
             self._entries = old_entries
-            if wrote_new_ranked:
-                ranked_path.unlink(missing_ok=True)
+            for temporary_path, _ in staged:
+                temporary_path.unlink(missing_ok=True)
             raise
+
+        if pruned is not None and pruned.filename != filename:
+            try:
+                (self.config.directory / pruned.filename).unlink()
+            except OSError:
+                # The committed manifest is authoritative. A stale unreferenced file
+                # is safer than rolling back a transaction that already committed.
+                pass
 
         if self.config.save_last_ckpt:
             return last_path
@@ -383,12 +404,13 @@ class CheckpointManager:
             raise TypeError("scheduler must provide load_state_dict()")
 
         payload = torch.load(path, map_location=map_location, weights_only=False)
-        validated = self._validate_payload(payload, expected_run_config)
+        validated = self._validate_payload(
+            payload,
+            expected_run_config,
+            optimizer=optimizer,
+            scheduler=scheduler,
+        )
         saved_scheduler_state = validated["scheduler_state"]
-        if (saved_scheduler_state is None) != (scheduler is None):
-            raise ValueError(
-                "checkpoint and destination scheduler presence must match"
-            )
 
         model_copy = copy.deepcopy(model)
         model_copy.load_state_dict(validated["model_state"], strict=True)
@@ -470,7 +492,12 @@ class CheckpointManager:
         )
 
     def _validate_payload(
-        self, payload: Any, expected_run_config: Mapping[str, Any]
+        self,
+        payload: Any,
+        expected_run_config: Mapping[str, Any],
+        *,
+        optimizer: torch.optim.Optimizer,
+        scheduler: Any | None,
     ) -> dict[str, Any]:
         if not isinstance(payload, Mapping):
             raise TypeError("checkpoint payload must be a mapping")
@@ -478,7 +505,9 @@ class CheckpointManager:
             "schema_version",
             "model_state",
             "optimizer_state",
+            "optimizer_type",
             "scheduler_state",
+            "scheduler_type",
             "epoch",
             "global_step",
             "metrics",
@@ -502,9 +531,34 @@ class CheckpointManager:
             raise TypeError("checkpoint model_state must be a mapping")
         if not isinstance(payload["optimizer_state"], Mapping):
             raise TypeError("checkpoint optimizer_state must be a mapping")
+        optimizer_type = payload["optimizer_type"]
+        if not isinstance(optimizer_type, str):
+            raise TypeError("checkpoint optimizer_type must be a string")
+        if optimizer_type != _qualified_type(optimizer):
+            raise ValueError(
+                "checkpoint optimizer type is incompatible with destination"
+            )
+        self._validate_optimizer_state(payload["optimizer_state"], optimizer)
         scheduler_state = payload["scheduler_state"]
         if scheduler_state is not None and not isinstance(scheduler_state, Mapping):
             raise TypeError("checkpoint scheduler_state must be a mapping or null")
+        scheduler_type = payload["scheduler_type"]
+        if scheduler_type is not None and not isinstance(scheduler_type, str):
+            raise TypeError("checkpoint scheduler_type must be a string or null")
+        if (scheduler_state is None) != (scheduler_type is None):
+            raise ValueError("checkpoint scheduler state and type are inconsistent")
+        if (scheduler_state is None) != (scheduler is None):
+            raise ValueError(
+                "checkpoint and destination scheduler presence must match"
+            )
+        if scheduler is not None:
+            if scheduler_type != _qualified_type(scheduler):
+                raise ValueError(
+                    "checkpoint scheduler type is incompatible with destination"
+                )
+            expected_scheduler_keys = set(scheduler.state_dict())
+            if set(scheduler_state) != expected_scheduler_keys:
+                raise ValueError("checkpoint scheduler state keys are incompatible")
 
         epoch = _nonnegative_integer(payload["epoch"], name="checkpoint epoch")
         global_step = _nonnegative_integer(
@@ -514,11 +568,13 @@ class CheckpointManager:
         saved_run_config = payload["run_config"]
         if not isinstance(saved_run_config, Mapping):
             raise TypeError("checkpoint run_config must be a mapping")
+        self._validate_run_config_contract(
+            saved_run_config, name="checkpoint run_config"
+        )
+        self._validate_run_config_contract(
+            expected_run_config, name="expected_run_config"
+        )
         for section in ("model", "normalization"):
-            if section not in saved_run_config:
-                raise ValueError(f"checkpoint run_config is missing {section}")
-            if section not in expected_run_config:
-                raise ValueError(f"expected_run_config is missing {section}")
             if saved_run_config[section] != expected_run_config[section]:
                 raise ValueError(f"checkpoint {section} configuration is incompatible")
 
@@ -543,7 +599,9 @@ class CheckpointManager:
         return {
             "model_state": payload["model_state"],
             "optimizer_state": payload["optimizer_state"],
+            "optimizer_type": optimizer_type,
             "scheduler_state": scheduler_state,
+            "scheduler_type": scheduler_type,
             "epoch": epoch,
             "global_step": global_step,
             "metrics": metrics,
@@ -552,6 +610,65 @@ class CheckpointManager:
             "torch_rng_state": torch_rng_state,
             "cuda_rng_states": cuda_rng_states,
         }
+
+    @staticmethod
+    def _validate_run_config_contract(
+        run_config: Mapping[str, Any], *, name: str
+    ) -> None:
+        for section in ("model", "normalization"):
+            if section not in run_config:
+                raise ValueError(f"{name} is missing {section}")
+            if not isinstance(run_config[section], Mapping):
+                raise TypeError(f"{name}.{section} must be a mapping")
+
+    @staticmethod
+    def _validate_optimizer_state(
+        state: Mapping[str, Any], optimizer: torch.optim.Optimizer
+    ) -> None:
+        raw_state = state.get("state")
+        raw_groups = state.get("param_groups")
+        if not isinstance(raw_state, Mapping) or not isinstance(raw_groups, list):
+            raise ValueError("checkpoint optimizer state structure is invalid")
+        if len(raw_groups) != len(optimizer.param_groups):
+            raise ValueError("checkpoint optimizer state group count is incompatible")
+        for saved_group, destination_group in zip(
+            raw_groups, optimizer.param_groups, strict=True
+        ):
+            if not isinstance(saved_group, Mapping):
+                raise ValueError("checkpoint optimizer parameter group is invalid")
+            saved_parameter_ids = saved_group.get("params")
+            destination_parameters = destination_group.get("params")
+            if not isinstance(saved_parameter_ids, list) or not isinstance(
+                destination_parameters, list
+            ):
+                raise ValueError("checkpoint optimizer parameter list is invalid")
+            if len(saved_parameter_ids) != len(destination_parameters):
+                raise ValueError(
+                    "checkpoint optimizer state parameter count is incompatible"
+                )
+            if isinstance(optimizer, (torch.optim.Adam, torch.optim.AdamW)):
+                for parameter_id, parameter in zip(
+                    saved_parameter_ids, destination_parameters, strict=True
+                ):
+                    parameter_state = raw_state.get(parameter_id, {})
+                    if not isinstance(parameter_state, Mapping):
+                        raise ValueError("checkpoint optimizer state entry is invalid")
+                    if not parameter_state:
+                        continue
+                    required = {"step", "exp_avg", "exp_avg_sq"}
+                    if not required.issubset(parameter_state):
+                        raise ValueError("checkpoint optimizer state is incomplete")
+                    for key in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+                        if key not in parameter_state:
+                            continue
+                        tensor = parameter_state[key]
+                        if (
+                            not isinstance(tensor, torch.Tensor)
+                            or tensor.shape != parameter.shape
+                        ):
+                            raise ValueError(
+                                "checkpoint optimizer state tensor shape is incompatible"
+                            )
 
     def _validate_metrics(self, metrics: Mapping[str, float]) -> dict[str, float]:
         if not isinstance(metrics, Mapping):
@@ -606,13 +723,21 @@ class CheckpointManager:
         try:
             _require_exact_keys(
                 document,
-                {"schema_version", "entries"},
+                {"schema_version", "policy", "entries"},
                 section="checkpoint manifest",
             )
         except (TypeError, ValueError) as error:
             raise ValueError("invalid checkpoint manifest") from error
-        if document["schema_version"] != _MANIFEST_SCHEMA_VERSION:
+        manifest_version = document["schema_version"]
+        if (
+            isinstance(manifest_version, bool)
+            or not isinstance(manifest_version, int)
+            or manifest_version != _MANIFEST_SCHEMA_VERSION
+        ):
             raise ValueError("unsupported checkpoint manifest schema version")
+        expected_policy = self._manifest_policy()
+        if document["policy"] != expected_policy:
+            raise ValueError("checkpoint manifest ranking policy is incompatible")
         raw_entries = document["entries"]
         if not isinstance(raw_entries, list):
             raise ValueError("checkpoint manifest entries must be a list")
@@ -628,15 +753,25 @@ class CheckpointManager:
         entries.sort(key=self._ranking_key)
         return entries
 
-    def _write_manifest(self) -> None:
+    def _manifest_policy(self) -> dict[str, Any]:
+        return {
+            "monitor_key": self.config.topk.monitor_key,
+            "mode": self.config.topk.mode,
+            "k": self.config.topk.k,
+            "format_str": self.config.topk.format_str,
+        }
+
+    def _manifest_bytes(self) -> bytes:
         document = {
             "schema_version": _MANIFEST_SCHEMA_VERSION,
+            "policy": self._manifest_policy(),
             "entries": [entry.as_dict() for entry in self._entries],
         }
-        encoded = (json.dumps(document, indent=2, sort_keys=True) + "\n").encode()
-        self._atomic_bytes_write(encoded, self._manifest_path)
+        return (json.dumps(document, indent=2, sort_keys=True) + "\n").encode()
 
-    def _atomic_torch_save(self, payload: Mapping[str, Any], destination: Path) -> None:
+    def _stage_torch_save(
+        self, payload: Mapping[str, Any], destination: Path
+    ) -> Path:
         descriptor, temporary_name = tempfile.mkstemp(
             dir=self.config.directory,
             prefix=f".{destination.name}.",
@@ -648,11 +783,12 @@ class CheckpointManager:
             torch.save(payload, temporary_path)
             with temporary_path.open("rb") as file_handle:
                 os.fsync(file_handle.fileno())
-            os.replace(temporary_path, destination)
-        finally:
+            return temporary_path
+        except BaseException:
             temporary_path.unlink(missing_ok=True)
+            raise
 
-    def _atomic_bytes_write(self, data: bytes, destination: Path) -> None:
+    def _stage_bytes_write(self, data: bytes, destination: Path) -> Path:
         descriptor, temporary_name = tempfile.mkstemp(
             dir=self.config.directory,
             prefix=f".{destination.name}.",
@@ -664,6 +800,48 @@ class CheckpointManager:
                 file_handle.write(data)
                 file_handle.flush()
                 os.fsync(file_handle.fileno())
-            os.replace(temporary_path, destination)
-        finally:
+            return temporary_path
+        except BaseException:
             temporary_path.unlink(missing_ok=True)
+            raise
+
+    def _publish_transaction(self, staged: list[tuple[Path, Path]]) -> None:
+        backups: list[tuple[Path, Path]] = []
+        published: list[Path] = []
+        committed = False
+        try:
+            for _, destination in staged:
+                if destination.exists():
+                    descriptor, backup_name = tempfile.mkstemp(
+                        dir=self.config.directory,
+                        prefix=f".{destination.name}.",
+                        suffix=".bak",
+                    )
+                    os.close(descriptor)
+                    backup = Path(backup_name)
+                    try:
+                        os.replace(destination, backup)
+                    except BaseException:
+                        backup.unlink(missing_ok=True)
+                        raise
+                    backups.append((destination, backup))
+
+            for temporary_path, destination in staged:
+                os.replace(temporary_path, destination)
+                published.append(destination)
+            committed = True
+        except BaseException:
+            for destination in reversed(published):
+                destination.unlink(missing_ok=True)
+            for destination, backup in reversed(backups):
+                os.replace(backup, destination)
+            raise
+        finally:
+            for temporary_path, _ in staged:
+                temporary_path.unlink(missing_ok=True)
+            if committed:
+                for _, backup in backups:
+                    try:
+                        backup.unlink()
+                    except OSError:
+                        pass

@@ -48,8 +48,9 @@ python -m unittest discover -s tests -v
 每次保存包含模型、优化器、可选学习率调度器、epoch、global step、全部指标、运行配置
 以及 Python、PyTorch 和已初始化 CUDA 设备的随机数状态。最佳文件按
 `test_mean_score` 保留 5 个；同分时优先较新的 epoch/global step。`last.ckpt` 独立更新，
-`index.json` 记录 Top-K 排名。文件均通过同目录临时文件原子替换，配置缺失、指标非有限、
-状态不兼容或模型/归一化契约变化都会显式报错。
+`index.json` 记录 Top-K 排名并绑定监控指标、方向、数量和文件名策略。文件通过同目录临时
+文件与可回滚替换统一发布；配置缺失、指标非有限、optimizer/scheduler 类型或状态不兼容、
+模型/归一化契约变化都会显式报错。
 
 恢复时使用 `CheckpointManager.load(path, ..., map_location=...)` 指定文件，或使用
 `load_last(...)` 恢复 `last.ckpt`。加载默认同时恢复随机数状态，可通过
