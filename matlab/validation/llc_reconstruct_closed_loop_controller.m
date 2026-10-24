@@ -138,8 +138,11 @@ end
 
 function state = advancePhaseToStop(state, stopTimeS)
     if stopTimeS > state.last_time_s
+        elapsed = stopTimeS - state.last_time_s;
         state.phase_rad = mod(state.phase_rad + 2 * pi * state.frequency_hz * ...
-                              (stopTimeS - state.last_time_s), 2 * pi);
+                              elapsed, 2 * pi);
+        state.reference_ramp_elapsed_time_s = ...
+            state.reference_ramp_elapsed_time_s + elapsed;
         state.last_time_s = stopTimeS;
     end
 end

@@ -8,7 +8,10 @@ function state = llc_advance_closed_loop_controller( ...
         error('llc:InvalidControllerInput', 'Controller time, measurement or reference is invalid.');
     end
     frequency = state.frequency_hz;
-    phase = mod(state.phase_rad + 2 * pi * frequency * (nowS - state.last_time_s), 2 * pi);
+    elapsed = nowS - state.last_time_s;
+    state.reference_ramp_elapsed_time_s = ...
+        state.reference_ramp_elapsed_time_s + elapsed;
+    phase = mod(state.phase_rad + 2 * pi * frequency * elapsed, 2 * pi);
     edgeDue = nowS >= state.next_edge_time_s - tolerance;
     pendingDue = nowS >= state.pending_on_time_s - tolerance;
     if edgeDue
@@ -31,7 +34,8 @@ function state = llc_advance_closed_loop_controller( ...
             (control.voltage_filter_time_constant_s + control.control_period_s);
         state.filtered_voltage_v = state.filtered_voltage_v + ...
             alpha * (measuredVoltageV - state.filtered_voltage_v);
-        state.reference_voltage_v = referenceTargetV * min(nowS / control.reference_ramp_time_s, 1);
+        state.reference_voltage_v = referenceTargetV * min( ...
+            state.reference_ramp_elapsed_time_s / control.reference_ramp_time_s, 1);
         state.error_v = state.reference_voltage_v - state.filtered_voltage_v;
         state.integral_v_s = state.integral_v_s + control.control_period_s * state.error_v;
         desiredFrequency = control.bias_frequency_hz ...

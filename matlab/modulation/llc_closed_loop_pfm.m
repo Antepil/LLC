@@ -31,7 +31,8 @@ end
 function postPropagationSetup(block)
     names = {'phase_rad', 'integral_v_s', 'filtered_voltage_v', ...
              'frequency_hz', 'reference_voltage_v', 'error_v', ...
-             'last_time_s', 'next_control_time_s', 'next_edge_time_s', ...
+             'last_time_s', 'reference_ramp_elapsed_time_s', ...
+             'next_control_time_s', 'next_edge_time_s', ...
              'pending_on_time_s', 'active_pair', 'pending_pair', ...
              'desired_pair', 'next_hit_time_s'};
     block.NumDworks = numel(names);
@@ -46,6 +47,22 @@ end
 
 function initializeConditions(block)
     control = block.DialogPrm(1).Data;
+    if isfield(control, 'initial_state')
+        state = control.initial_state;
+        llc_validate_closed_loop_controller_state(state, control);
+        names = {'phase_rad', 'integral_v_s', 'filtered_voltage_v', ...
+                 'frequency_hz', 'reference_voltage_v', 'error_v', ...
+                 'last_time_s', 'reference_ramp_elapsed_time_s', ...
+                 'next_control_time_s', 'next_edge_time_s', ...
+                 'pending_on_time_s', 'active_pair', 'pending_pair', ...
+                 'desired_pair'};
+        for index = 1:numel(names)
+            setState(block, names{index}, state.(names{index}));
+        end
+        setState(block, 'next_hit_time_s', min([state.next_control_time_s, ...
+            state.next_edge_time_s, state.pending_on_time_s]));
+        return;
+    end
     setState(block, 'phase_rad', 0);
     setState(block, 'integral_v_s', 0);
     setState(block, 'filtered_voltage_v', 0);
@@ -53,6 +70,7 @@ function initializeConditions(block)
     setState(block, 'reference_voltage_v', 0);
     setState(block, 'error_v', 0);
     setState(block, 'last_time_s', 0);
+    setState(block, 'reference_ramp_elapsed_time_s', 0);
     setState(block, 'next_control_time_s', 0);
     setState(block, 'next_edge_time_s', 0.5 / control.initial_frequency_hz);
     setState(block, 'pending_on_time_s', control.deadtime_s);
@@ -91,7 +109,9 @@ function update(block)
     tolerance = max(1e-14, 32 * eps(max(now, control.deadtime_s)));
     previousTime = getState(block, 'last_time_s');
     frequency = getState(block, 'frequency_hz');
-    phase = mod(getState(block, 'phase_rad') + 2 * pi * frequency * (now - previousTime), 2 * pi);
+    elapsed = now - previousTime;
+    rampElapsed = getState(block, 'reference_ramp_elapsed_time_s') + elapsed;
+    phase = mod(getState(block, 'phase_rad') + 2 * pi * frequency * elapsed, 2 * pi);
     nextEdge = getState(block, 'next_edge_time_s');
     pendingOn = getState(block, 'pending_on_time_s');
     edgeDue = now >= nextEdge - tolerance;
@@ -124,7 +144,7 @@ function update(block)
                 (control.voltage_filter_time_constant_s + control.control_period_s);
         filteredVoltage = filteredVoltage + alpha * (measuredVoltage - filteredVoltage);
         referenceTarget = block.InputPort(2).Data;
-        reference = referenceTarget * min(now / control.reference_ramp_time_s, 1);
+        reference = referenceTarget * min(rampElapsed / control.reference_ramp_time_s, 1);
         errorVoltage = reference - filteredVoltage;
         integral = getState(block, 'integral_v_s');
         candidateIntegral = integral + control.control_period_s * errorVoltage;
@@ -180,6 +200,7 @@ function update(block)
     end
     setState(block, 'phase_rad', phase);
     setState(block, 'last_time_s', now);
+    setState(block, 'reference_ramp_elapsed_time_s', rampElapsed);
     setState(block, 'next_control_time_s', nextControl);
     setState(block, 'next_edge_time_s', nextEdge);
     setState(block, 'pending_on_time_s', pendingOn);

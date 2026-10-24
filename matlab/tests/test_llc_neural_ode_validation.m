@@ -278,6 +278,87 @@ function testControllerStartsOffThenAppliesDeadtimeAndAlternatingPairs(testCase)
     verifyEqual(testCase, llc_closed_loop_controller_gates(state), [0 1 1 0]);
 end
 
+function testControllerRampElapsedTimeSurvivesLocalTimeShift(testCase)
+    control = controllerFixture;
+    handoff = 0.5 * control.reference_ramp_time_s;
+    state = llc_initialize_closed_loop_controller(control);
+    state.last_time_s = handoff;
+    state.reference_ramp_elapsed_time_s = handoff;
+    state.next_control_time_s = handoff;
+    state.next_edge_time_s = handoff + 1e-6;
+    state.pending_on_time_s = Inf;
+
+    local = llc_shift_closed_loop_controller_state(state, handoff, 1e-12);
+    local = llc_advance_closed_loop_controller(local, 0, 24, 48, control);
+
+    verifyEqual(testCase, local.reference_voltage_v, 24, 'AbsTol', 1e-12);
+    verifyEqual(testCase, local.reference_ramp_elapsed_time_s, handoff, 'AbsTol', 0);
+end
+
+function testControllerShiftKeepsBoundaryEventDue(testCase)
+    control = controllerFixture;
+    handoff = 5e-4;
+    state = warmControllerState(control, handoff);
+    state.next_control_time_s = handoff;
+
+    local = llc_shift_closed_loop_controller_state(state, handoff, 1e-12);
+
+    verifyEqual(testCase, local.last_time_s, 0, 'AbsTol', 0);
+    verifyEqual(testCase, local.next_control_time_s, 0, 'AbsTol', 0);
+end
+
+function testControllerShiftKeepsFutureEventFuture(testCase)
+    control = controllerFixture;
+    handoff = 5e-4;
+    state = warmControllerState(control, handoff);
+    state.next_control_time_s = handoff + 2e-6;
+    state.next_edge_time_s = handoff + 3e-6;
+    state.pending_on_time_s = Inf;
+
+    local = llc_shift_closed_loop_controller_state(state, handoff, 1e-12);
+
+    verifyEqual(testCase, local.next_control_time_s, 2e-6, 'AbsTol', 1e-18);
+    verifyEqual(testCase, local.next_edge_time_s, 3e-6, 'AbsTol', 1e-18);
+    verifyEqual(testCase, local.pending_on_time_s, Inf);
+end
+
+function testControllerStateValidationRejectsIncompleteOrNonfiniteState(testCase)
+    control = controllerFixture;
+    state = warmControllerState(control, 5e-4);
+    verifyWarningFree(testCase, @()llc_validate_closed_loop_controller_state(state, control));
+
+    incomplete = rmfield(state, 'pending_pair');
+    verifyError(testCase, ...
+        @()llc_validate_closed_loop_controller_state(incomplete, control), ...
+        'llc:InvalidControllerState');
+
+    nonfinite = state;
+    nonfinite.frequency_hz = NaN;
+    verifyError(testCase, ...
+        @()llc_validate_closed_loop_controller_state(nonfinite, control), ...
+        'llc:InvalidControllerState');
+end
+
+function testPfmSFunctionRestoresWarmState(testCase)
+    control = controllerFixture;
+    state = warmControllerState(control, 5e-4);
+    state.active_pair = 2;
+    state.pending_pair = 0;
+    state.desired_pair = 2;
+    state.frequency_hz = 123456;
+    state.filtered_voltage_v = 47;
+    state.reference_voltage_v = 48;
+    state.error_v = 1;
+    state.integral_v_s = 2e-5;
+    state = llc_shift_closed_loop_controller_state(state, 5e-4, 1e-12);
+    control.initial_state = state;
+
+    output = simulatePfmInitialOutput(control);
+
+    verifyEqual(testCase, output, [0 1 1 0 123456 47 48 1 2e-5], ...
+        'AbsTol', 1e-12);
+end
+
 function testNeuralClosedLoopReturnsCompleteControllerState(testCase)
     model = constantDerivativeModel;
     model.network.biases = {zeros(4, 1)};
@@ -666,6 +747,48 @@ function solver = shortSolver
     solver = struct('name', 'ode23t', 'max_step_s', 1e-7, ...
         'relative_tolerance', 1e-6, 'absolute_tolerance', 1e-8, ...
         'event_time_tolerance_s', 1e-12);
+end
+
+function state = warmControllerState(control, handoff)
+    state = llc_initialize_closed_loop_controller(control);
+    state.reference_ramp_elapsed_time_s = handoff;
+    state.last_time_s = handoff;
+    state.next_control_time_s = handoff + control.control_period_s;
+    state.next_edge_time_s = handoff + 0.25 / control.initial_frequency_hz;
+    state.pending_on_time_s = Inf;
+end
+
+function output = simulatePfmInitialOutput(control)
+    [~, suffix] = fileparts(tempname);
+    modelName = matlab.lang.makeValidName(['pfm_warm_' suffix]);
+    new_system(modelName);
+    cleanup = onCleanup(@()closeTestModel(modelName));
+    assignin(get_param(modelName, 'ModelWorkspace'), 'test_control', control);
+    add_block('simulink/Sources/Constant', [modelName '/MeasuredVoltage'], ...
+        'Value', '47', 'Position', [30 40 80 70]);
+    add_block('simulink/Sources/Constant', [modelName '/ReferenceVoltage'], ...
+        'Value', '48', 'Position', [30 100 80 130]);
+    add_block('simulink/User-Defined Functions/Level-2 MATLAB S-Function', ...
+        [modelName '/PFM'], 'FunctionName', 'llc_closed_loop_pfm', ...
+        'Parameters', 'test_control', 'Position', [140 45 280 125]);
+    add_block('simulink/Sinks/To Workspace', [modelName '/Log'], ...
+        'VariableName', 'pfm_output', 'SaveFormat', 'Timeseries', ...
+        'Position', [340 65 430 105]);
+    add_line(modelName, 'MeasuredVoltage/1', 'PFM/1');
+    add_line(modelName, 'ReferenceVoltage/1', 'PFM/2');
+    add_line(modelName, 'PFM/1', 'Log/1');
+    set_param(modelName, 'Solver', 'VariableStepDiscrete', 'StopTime', '0');
+    simulation = sim(modelName, 'ReturnWorkspaceOutputs', 'on');
+    logged = simulation.get('pfm_output');
+    output = double(logged.Data(1, :));
+    clear cleanup;
+    closeTestModel(modelName);
+end
+
+function closeTestModel(modelName)
+    if bdIsLoaded(modelName)
+        close_system(modelName, 0);
+    end
 end
 
 function deleteIfPresent(file)
