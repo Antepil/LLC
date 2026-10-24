@@ -36,3 +36,21 @@ normalization:
   state_scale_rule: null
   vin_reference_v: null
   time_reference_s: null
+
+# ==================== 检查点保存 ====================
+checkpoint:
+  # 相对路径统一以项目根目录解析，不依赖命令执行目录。
+  directory: artifacts/checkpoints
+  topk:
+    # 用于筛选最佳检查点的指标名称，须与训练记录的指标一致。
+    monitor_key: test_mean_score
+    # 指标比较方向：max 表示数值越大越好。
+    mode: max
+    # 保留的最佳检查点数量。
+    k: 5
+    # 检查点文件名模板，所用字段须由保存逻辑提供。
+    format_str: 'epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt'
+  # 是否保存最新检查点。
+  save_last_ckpt: true
+  # 工作区快照尚未定义；启用时配置解析会显式报错。
+  save_last_snapshot: false
