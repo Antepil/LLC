@@ -23,6 +23,8 @@ function [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
     generation = llc_read_json(generationConfigFile);
     validateHardware(hardware);
     validateGeneration(generation);
+    trajectorySchema = outputSchema(generation);
+    formalGeneration = isFormalGeneration(generation);
     modelFile = resolveProjectPath(projectRoot, generation.model_file);
     if ~isfile(modelFile)
         error('llc:MissingModel', 'Shared closed-loop model does not exist: %s', modelFile);
@@ -43,17 +45,31 @@ function [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
 
     for index = 1:numel(generation.conditions)
         condition = generation.conditions(index);
+        requestSignature = buildGenerationRequestSignature( ...
+            hardware, generation, condition);
         entries(index).trajectory_id = condition.trajectory_id;
         outputFile = fullfile(outputDirectory, ...
             sprintf('trajectory_%04d_%s.mat', index, condition.trajectory_id));
         try
             if resumeExisting && isfile(outputFile)
-                existing = load(outputFile, 'trajectory_id', 'schema_version');
-                if ~isfield(existing, 'trajectory_id') || ...
-                        ~strcmp(existing.trajectory_id, condition.trajectory_id) || ...
-                        ~isfield(existing, 'schema_version') || ...
-                        ~strcmp(existing.schema_version, ...
-                                'llc-sinusoidal-excitation-fixed-grid-trajectory-v1')
+                if formalGeneration
+                    requiredFields = {'trajectory_id', 'schema_version', ...
+                        'generation_request_signature'};
+                else
+                    requiredFields = {'trajectory_id', 'schema_version'};
+                end
+                availableFields = who('-file', outputFile);
+                if ~all(ismember(requiredFields, availableFields))
+                    error('llc:InvalidExistingOutput', ...
+                          'Existing trajectory lacks resume-integrity metadata: %s', ...
+                          outputFile);
+                end
+                existing = load(outputFile, requiredFields{:});
+                signatureMismatch = formalGeneration && ...
+                    ~strcmp(existing.generation_request_signature, requestSignature);
+                if ~strcmp(existing.trajectory_id, condition.trajectory_id) || ...
+                        ~strcmp(existing.schema_version, trajectorySchema) || ...
+                        signatureMismatch
                     error('llc:InvalidExistingOutput', ...
                           'Existing trajectory does not match the requested condition: %s', outputFile);
                 end
@@ -108,7 +124,7 @@ function [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
                 fixed.interval_times_s, excitation);
 
             trajectory = struct;
-            trajectory.schema_version = 'llc-sinusoidal-excitation-fixed-grid-trajectory-v1';
+            trajectory.schema_version = trajectorySchema;
             trajectory.trajectory_id = condition.trajectory_id;
             trajectory.state_names = cellstr(hardware.state_names);
             trajectory.state_units = cellstr(hardware.state_units);
@@ -140,6 +156,12 @@ function [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
             trajectory.condition = condition;
             trajectory.fixed_load_ohm = generation.fixed_load_ohm;
             trajectory.excitation = excitation;
+            if formalGeneration
+                trajectory.dataset_split = condition.dataset_role;
+                trajectory.random_seed = condition.random_seed;
+                trajectory.realized_excitation_segments = excitation.segments;
+                trajectory.generation_request_signature = requestSignature;
+            end
             inputContract = struct;
             inputContract.state_names = cellstr(hardware.state_names);
             inputContract.exogenous_names = [cellstr(hardware.gate_names); {'vin_v'}];
@@ -154,7 +176,12 @@ function [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
                 error('llc:OutputExists', ...
                       'Refusing to overwrite an existing trajectory: %s', outputFile);
             end
-            save(outputFile, '-struct', 'trajectory', '-v7');
+            if formalGeneration
+                save(outputFile, '-struct', 'trajectory', ...
+                     char(generation.mat_file_version));
+            else
+                save(outputFile, '-struct', 'trajectory', '-v7');
+            end
             files(index) = string(outputFile);
             entries(index).success = true;
             entries(index).output_file = outputFile;
@@ -173,10 +200,37 @@ function [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
 end
 
 function excitation = buildExcitation(generation, condition)
-    excitation = struct( ...
-        'start_time_s', generation.excitation_timing.start_time_s, ...
-        'envelope_rise_time_s', generation.excitation_timing.envelope_rise_time_s, ...
-        'vin', condition.vin, 'reference', condition.reference);
+    if isFormalGeneration(generation)
+        excitation = llc_build_continuous_random_excitation( ...
+            generation.random_excitation, generation.excitation_timing, condition);
+    else
+        excitation = struct( ...
+            'start_time_s', generation.excitation_timing.start_time_s, ...
+            'envelope_rise_time_s', generation.excitation_timing.envelope_rise_time_s, ...
+            'vin', condition.vin, 'reference', condition.reference);
+    end
+end
+
+function result = isFormalGeneration(generation)
+    result = strcmp(generation.schema_version, ...
+                    'llc-continuous-random-excitation-data-generation-v1');
+end
+
+function schema = outputSchema(generation)
+    if isFormalGeneration(generation)
+        schema = 'llc-continuous-random-excitation-fixed-grid-trajectory-v1';
+    else
+        schema = 'llc-sinusoidal-excitation-fixed-grid-trajectory-v1';
+    end
+end
+
+function signature = buildGenerationRequestSignature(hardware, generation, condition)
+    normalizedGeneration = rmfield(generation, ...
+        {'output_directory', 'conditions'});
+    request = struct('hardware', hardware, ...
+                     'generation', normalizedGeneration, ...
+                     'condition', condition);
+    signature = jsonencode(request);
 end
 
 function simulation = applyInitialState(simulation, modelName, initialState)
@@ -258,9 +312,15 @@ function validateHardware(config)
 end
 
 function validateGeneration(config)
-    if ~isfield(config, 'schema_version') || ...
-            ~strcmp(config.schema_version, ...
-                    'llc-sinusoidal-excitation-data-generation-v1')
+    if ~isfield(config, 'schema_version')
+        error('llc:InvalidConfig', ...
+              'Unsupported sinusoidal-excitation schema_version.');
+    end
+    screening = strcmp(config.schema_version, ...
+                       'llc-sinusoidal-excitation-data-generation-v1');
+    formal = strcmp(config.schema_version, ...
+                    'llc-continuous-random-excitation-data-generation-v1');
+    if ~screening && ~formal
         error('llc:InvalidConfig', ...
               'Unsupported sinusoidal-excitation schema_version.');
     end
@@ -277,11 +337,21 @@ function validateGeneration(config)
             error('llc:IncompleteConfig', '%s must be a JSON object.', name);
         end
     end
-    requireNonnegative(config.excitation_timing, 'start_time_s');
-    requireNonnegative(config.excitation_timing, 'envelope_rise_time_s');
-    if config.excitation_timing.start_time_s + ...
-            config.excitation_timing.envelope_rise_time_s >= config.simulation_stop_time_s
-        error('llc:InvalidConfig', 'Excitation envelope must finish before stop time.');
+    if screening
+        validateScreeningTiming(config);
+    else
+        validateFormalTiming(config);
+        if ~isfield(config, 'random_excitation') || ...
+                ~isstruct(config.random_excitation) || ...
+                ~isscalar(config.random_excitation)
+            error('llc:IncompleteConfig', ...
+                  'random_excitation must be a JSON object.');
+        end
+        requireText(config, 'mat_file_version');
+        if ~strcmp(config.mat_file_version, '-v7')
+            error('llc:InvalidConfig', ...
+                  'Formal continuous-random data must use MAT -v7.');
+        end
     end
     if ~isfield(config, 'initial_state') || ~isnumeric(config.initial_state) || ...
             numel(config.initial_state) ~= 4 || any(config.initial_state ~= 0)
@@ -346,6 +416,7 @@ function validateGeneration(config)
         error('llc:IncompleteConfig', 'conditions must contain trajectory objects.');
     end
     identifiers = strings(numel(config.conditions), 1);
+    seeds = nan(numel(config.conditions), 1);
     for index = 1:numel(config.conditions)
         condition = config.conditions(index);
         requireText(condition, 'trajectory_id');
@@ -356,13 +427,62 @@ function validateGeneration(config)
             error('llc:InvalidCondition', ...
                   'trajectory_id contains unsupported characters.');
         end
-        validateSignal(condition, 'vin');
-        validateSignal(condition, 'reference');
+        if screening
+            validateSignal(condition, 'vin');
+            validateSignal(condition, 'reference');
+        else
+            role = string(condition.dataset_role);
+            if ~isscalar(role) || ...
+                    ~any(role == ["train", "validation", "test"])
+                error('llc:InvalidCondition', 'Unsupported dataset_role.');
+            end
+            requireNonnegative(condition, 'random_seed');
+            if condition.random_seed ~= round(condition.random_seed) || ...
+                    condition.random_seed > double(intmax('uint32'))
+                error('llc:InvalidCondition', ...
+                      'random_seed must be a uint32-compatible integer.');
+            end
+            seeds(index) = condition.random_seed;
+        end
         llc_evaluate_sinusoidal_excitation(0, buildExcitation(config, condition));
         identifiers(index) = string(condition.trajectory_id);
     end
     if numel(unique(identifiers)) ~= numel(identifiers)
         error('llc:InvalidConfig', 'condition trajectory_id values must be unique.');
+    end
+    if formal && numel(unique(seeds)) ~= numel(seeds)
+        error('llc:InvalidConfig', 'condition random_seed values must be unique.');
+    end
+end
+
+function validateScreeningTiming(config)
+    requireNonnegative(config.excitation_timing, 'start_time_s');
+    requireNonnegative(config.excitation_timing, 'envelope_rise_time_s');
+    if config.excitation_timing.start_time_s + ...
+            config.excitation_timing.envelope_rise_time_s >= ...
+            config.simulation_stop_time_s
+        error('llc:InvalidConfig', ...
+              'Excitation envelope must finish before stop time.');
+    end
+end
+
+function validateFormalTiming(config)
+    timing = config.excitation_timing;
+    requireNonnegative(timing, 'start_time_s');
+    requirePositive(timing, 'segment_duration_s');
+    requirePositive(timing, 'transition_time_s');
+    requirePositive(timing, 'segment_count');
+    if timing.segment_count ~= round(timing.segment_count) || ...
+            timing.transition_time_s > timing.segment_duration_s
+        error('llc:InvalidConfig', ...
+              'Formal segment timing is invalid.');
+    end
+    expectedStop = timing.start_time_s + ...
+        timing.segment_count * timing.segment_duration_s;
+    if abs(expectedStop - config.simulation_stop_time_s) > ...
+            64 * eps(max(expectedStop, 1))
+        error('llc:InvalidConfig', ...
+              'Formal stop time must contain startup and all segments exactly.');
     end
 end
 

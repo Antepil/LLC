@@ -20,11 +20,15 @@ function llc_initialize_model(model)
             'start_time_s', 0, 'envelope_rise_time_s', 0, ...
             'vin', constantSignal(override.parameters.vin_v), ...
             'reference', constantSignal(override.control.reference_voltage_v));
+    elseif isfield(override, 'events')
+        excitation = [];
     else
         error('llc:InvalidSimulationConfig', ...
               'Run configuration does not define a valid excitation.');
     end
-    assignin(workspace, 'llc_excitation', excitation);
+    if ~isempty(excitation)
+        assignin(workspace, 'llc_excitation', excitation);
+    end
     if isfield(override, 'events')
         assignin(workspace, 'llc_gate_source', override.events.gate_source);
         assignin(workspace, 'llc_events', override.events);

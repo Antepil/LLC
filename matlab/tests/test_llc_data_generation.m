@@ -32,3 +32,45 @@ function testRejectsOutOfRangeFrequency(testCase)
     verifyError(testCase, @()llc_constant_frequency_events(modulation, 300000, 1e-3), ...
                 'llc:InvalidCondition');
 end
+
+function testOpenLoopGeneratorDoesNotRequireExcitation(testCase)
+    root = testCase.TestData.projectRoot;
+    generation = llc_read_json(fullfile(root, 'configs', 'matlab', ...
+        'data_generation.json'));
+    [~, temporaryName] = fileparts(tempname);
+    relativeOutputDirectory = fullfile('data', 'raw', temporaryName);
+    outputDirectory = fullfile(root, relativeOutputDirectory);
+    mkdir(outputDirectory);
+    cleanupDirectory = onCleanup(@()rmdir(outputDirectory, 's'));
+    configFile = [tempname, '.json'];
+    cleanupConfig = onCleanup(@()deleteIfPresent(configFile));
+    generation.output_directory = relativeOutputDirectory;
+    generation.conditions.stop_time_s = 20e-6;
+    writeJson(configFile, generation);
+
+    files = generate_llc_dataset([], configFile);
+
+    verifyNumElements(testCase, files, 1);
+    verifyTrue(testCase, isfile(files(1)));
+    trajectory = load(files(1), 'schema_version', 'trajectory_id');
+    verifyEqual(testCase, trajectory.schema_version, 'llc-raw-trajectory-v1');
+    verifyEqual(testCase, trajectory.trajectory_id, ...
+                generation.conditions.trajectory_id);
+    clear cleanupConfig cleanupDirectory;
+end
+
+function writeJson(file, value)
+    handle = fopen(file, 'w');
+    if handle < 0
+        error('llc:TestFile', 'Unable to create temporary JSON configuration.');
+    end
+    cleanup = onCleanup(@()fclose(handle));
+    fwrite(handle, jsonencode(value, PrettyPrint=true), 'char');
+    clear cleanup;
+end
+
+function deleteIfPresent(file)
+    if isfile(file)
+        delete(file);
+    end
+end
