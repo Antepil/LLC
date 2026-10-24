@@ -5,7 +5,7 @@ end
 
 function setup(block)
     block.NumDialogPrms = 1;
-    block.NumInputPorts = 1;
+    block.NumInputPorts = 2;
     block.NumOutputPorts = 1;
     block.SetPreCompInpPortInfoToDynamic;
     block.SetPreCompOutPortInfoToDynamic;
@@ -13,6 +13,10 @@ function setup(block)
     block.InputPort(1).DatatypeID = 0;
     block.InputPort(1).Complexity = 'Real';
     block.InputPort(1).DirectFeedthrough = false;
+    block.InputPort(2).Dimensions = 1;
+    block.InputPort(2).DatatypeID = 0;
+    block.InputPort(2).Complexity = 'Real';
+    block.InputPort(2).DirectFeedthrough = false;
     block.OutputPort(1).Dimensions = 9;
     block.OutputPort(1).DatatypeID = 0;
     block.OutputPort(1).Complexity = 'Real';
@@ -119,14 +123,33 @@ function update(block)
         alpha = control.control_period_s / ...
                 (control.voltage_filter_time_constant_s + control.control_period_s);
         filteredVoltage = filteredVoltage + alpha * (measuredVoltage - filteredVoltage);
-        reference = control.reference_voltage_v * min(now / control.reference_ramp_time_s, 1);
+        referenceTarget = block.InputPort(2).Data;
+        reference = referenceTarget * min(now / control.reference_ramp_time_s, 1);
         errorVoltage = reference - filteredVoltage;
         integral = getState(block, 'integral_v_s');
         candidateIntegral = integral + control.control_period_s * errorVoltage;
         desiredFrequency = piFrequency(control, errorVoltage, candidateIntegral);
-        integral = candidateIntegral;
+        if hasFrequencyBounds(control)
+            pushesBelowMinimum = desiredFrequency < control.minimum_frequency_hz && ...
+                                 errorVoltage > 0;
+            pushesAboveMaximum = desiredFrequency > control.maximum_frequency_hz && ...
+                                 errorVoltage < 0;
+            if pushesBelowMinimum || pushesAboveMaximum
+                desiredFrequency = piFrequency(control, errorVoltage, integral);
+            else
+                integral = candidateIntegral;
+            end
+            desiredFrequency = min(max(desiredFrequency, control.minimum_frequency_hz), ...
+                                   control.maximum_frequency_hz);
+        else
+            integral = candidateIntegral;
+        end
         maximumChange = control.frequency_slew_rate_hz_per_s * control.control_period_s;
         frequency = frequency + min(max(desiredFrequency - frequency, -maximumChange), maximumChange);
+        if hasFrequencyBounds(control)
+            frequency = min(max(frequency, control.minimum_frequency_hz), ...
+                            control.maximum_frequency_hz);
+        end
         if ~isfinite(frequency) || frequency <= 0
             error('llc:InvalidFrequency', 'PFM requires a finite positive frequency; got %g Hz.', frequency);
         end
@@ -164,6 +187,22 @@ function update(block)
     setState(block, 'pending_pair', pendingPair);
     setState(block, 'desired_pair', desiredPair);
     setState(block, 'next_hit_time_s', nextHit);
+end
+
+function result = hasFrequencyBounds(control)
+    hasMinimum = isfield(control, 'minimum_frequency_hz');
+    hasMaximum = isfield(control, 'maximum_frequency_hz');
+    if xor(hasMinimum, hasMaximum)
+        error('llc:InvalidControl', ...
+              'minimum_frequency_hz and maximum_frequency_hz must be configured together.');
+    end
+    result = hasMinimum && hasMaximum;
+    if result && (~isfinite(control.minimum_frequency_hz) || ...
+            ~isfinite(control.maximum_frequency_hz) || ...
+            control.minimum_frequency_hz <= 0 || ...
+            control.minimum_frequency_hz >= control.maximum_frequency_hz)
+        error('llc:InvalidControl', 'Configured frequency bounds are invalid.');
+    end
 end
 
 function frequency = piFrequency(control, errorVoltage, integral)
