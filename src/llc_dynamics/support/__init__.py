@@ -7,6 +7,7 @@ from .checkpointing import (
     TopKConfig,
 )
 from .normalization import LLCNormalizer, NormalizationConfig
+from .matlab_export import export_checkpoint_to_matlab, export_matlab_model
 from .adapters import MATLABTrajectory, load_matlab_trajectory
 from .windowing import (
     RolloutBatch,
@@ -30,4 +31,6 @@ __all__ = [
     "WindowSpec",
     "collate_rollout_windows",
     "load_matlab_trajectory",
+    "export_checkpoint_to_matlab",
+    "export_matlab_model",
 ]

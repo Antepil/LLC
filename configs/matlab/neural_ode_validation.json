@@ -1,72 +1,24 @@
 {
-  "schema_version": "llc-neural-ode-validation-v1",
+  "schema_version": "llc-neural-ode-validation-v2",
   "hardware_config_file": "configs/matlab/hardware.json",
-  "control_config": {
-    "file": "configs/matlab/closed_loop_data_generation.json",
-    "section": "control"
-  },
+  "control_config": {"file": "configs/matlab/closed_loop_data_generation.json", "section": "control"},
+  "steady_state_config": {"file": "configs/matlab/closed_loop_data_generation.json", "section": "steady_state_assessment"},
   "model_export": {
     "file": "artifacts/models/llc_neural_ode/model_export.mat",
     "required_schema_version": "llc-neural-ode-matlab-export-v1",
-    "required_fields": [
-      "schema_version",
-      "network",
-      "state_names",
-      "gate_names",
-      "state_scales",
-      "vin_reference_v",
-      "time_reference_s",
-      "load_resistance_ohm"
-    ],
-    "state_names": [
-      "i_Lr",
-      "v_Cr",
-      "i_Lm",
-      "v_o"
-    ],
-    "gate_names": [
-      "Q1_A_high",
-      "Q2_A_low",
-      "Q3_B_high",
-      "Q4_B_low"
-    ],
-    "network_input_order": [
-      "z_i_Lr",
-      "z_v_Cr",
-      "z_i_Lm",
-      "z_v_o",
-      "Q1_A_high",
-      "Q2_A_low",
-      "Q3_B_high",
-      "Q4_B_low",
-      "Vin_over_V_ref"
-    ],
-    "network_output_order": [
-      "dz_i_Lr_dtau",
-      "dz_v_Cr_dtau",
-      "dz_i_Lm_dtau",
-      "dz_v_o_dtau"
-    ]
+    "load_abs_tolerance_ohm": 1.0e-9,
+    "consistency_abs_tolerance": 1.0e-12,
+    "consistency_relative_tolerance": 1.0e-12
   },
-  "reference_plant": {
-    "model_file": "matlab/models/llc_full_bridge_closed_loop.slx"
-  },
-  "simulation": {
-    "stop_time_s": 0.005,
-    "initial_state": [
-      0.0,
-      0.0,
-      0.0,
-      0.0
-    ],
-    "solver": {
-      "name": "ode23t",
-      "max_step_s": 9.090909090909091e-8,
-      "relative_tolerance": 1.0e-5,
-      "absolute_tolerance": 1.0e-7
-    },
+  "reference_plant": {"model_file": "matlab/models/llc_full_bridge_closed_loop.slx"},
+  "solver": {
+    "name": "ode23t",
+    "max_step_s": 9.090909090909091e-8,
+    "relative_tolerance": 1.0e-5,
+    "absolute_tolerance": 1.0e-7,
     "event_time_tolerance_s": 1.0e-12,
-    "fail_on_nonfinite_state": true
+    "fail_on_nonfinite_state": true,
+    "convergence_check": {"enabled": true, "max_step_factor": 0.5, "tolerance_factor": 0.1}
   },
   "comparison_sampling": {
     "reference_frequency_hz": 110000.0,
@@ -79,50 +31,39 @@
       "experiment_id": "recorded_gate_replay_vin400_r2p304_vref52p8",
       "enabled": true,
       "mode": "recorded_gate_replay",
-      "reference_trajectory_file": "data/raw/llc_closed_loop_extended_5ms/trajectory_0008_closed_loop_vin400_r2p304_vref52p8.mat",
-      "initial_state_source": "reference_trajectory",
-      "vin_source": "reference_trajectory",
-      "gate_source": "reference_trajectory_events"
+      "reference_trajectory_file": "data/raw/llc_closed_loop_extended_5ms/trajectory_0008_closed_loop_vin400_r2p304_vref52p8.mat"
     },
     {
-      "experiment_id": "independent_closed_loop_vin400_r2p304_vref52p8",
+      "experiment_id": "cold_start_closed_loop_baseline",
       "enabled": true,
       "mode": "independent_closed_loop",
-      "condition": {
-        "vin_v": 400.0,
-        "load_ohm": 2.304,
-        "reference_voltage_v": 52.8
+      "startup": {"mode": "cold", "evaluation_duration_s": 0.005},
+      "condition": {"load_ohm": 2.304},
+      "vin": {"type": "constant", "value_v": 400.0},
+      "reference": {"type": "constant", "value_v": 48.0}
+    },
+    {
+      "experiment_id": "warm_start_closed_loop_baseline",
+      "enabled": true,
+      "mode": "independent_closed_loop",
+      "startup": {
+        "mode": "warm",
+        "preheat_duration_s": 0.005,
+        "evaluation_duration_s": 0.005,
+        "require_steady_state": true,
+        "extend_preheat_on_failure": false
       },
-      "feedback_topology": "separate_identical_controllers",
-      "reference_profile": "configured_controller_ramp",
-      "initial_controller_state": {
-        "filtered_voltage_v": 0.0,
-        "integral_v_s": 0.0,
-        "frequency_hz": 180000.0,
-        "phase_rad": 0.0,
-        "active_pair": 0,
-        "pending_pair": 1,
-        "desired_pair": 1
-      }
+      "condition": {"load_ohm": 2.304},
+      "preheat_vin": {"type": "constant", "value_v": 400.0},
+      "preheat_reference": {"type": "constant", "value_v": 48.0},
+      "vin": {"type": "constant", "value_v": 400.0},
+      "reference": {"type": "constant", "value_v": 48.0}
     }
   ],
   "metrics": {
-    "state_metrics": [
-      "rmse",
-      "normalized_rmse_by_model_state_scale",
-      "maximum_absolute_error",
-      "final_absolute_error"
-    ],
-    "output_voltage_metrics": [
-      "mean_absolute_error",
-      "reference_tracking_rmse",
-      "tail_mean_error"
-    ],
+    "state_metrics": ["rmse", "normalized_rmse_by_model_state_scale", "maximum_absolute_error", "final_absolute_error"],
+    "output_voltage_metrics": ["mean_absolute_error", "reference_tracking_rmse", "tail_mean_error"],
     "tail_window_s": 0.0004,
-    "closed_loop_control_metrics": [
-      "frequency_rmse_hz",
-      "gate_transition_time_error_s"
-    ],
     "acceptance_thresholds": null
   },
   "output": {
