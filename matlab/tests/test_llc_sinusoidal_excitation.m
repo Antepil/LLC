@@ -188,6 +188,17 @@ function testContinuousRandomBuilderKeepsInactiveSignalConstant(testCase)
                 zeros(1, timing.segment_count));
     verifyEqual(testCase, [referenceOnlyVin.frequency_hz], ...
                 zeros(1, timing.segment_count));
+    probeTimes = [0; timing.start_time_s; timing.start_time_s + 1e-3; ...
+        timing.start_time_s + timing.segment_duration_s; ...
+        timing.start_time_s + timing.segment_duration_s + 1e-3; ...
+        timing.start_time_s + 9.5 * timing.segment_duration_s];
+    vinOnlyValues = llc_evaluate_sinusoidal_excitation(probeTimes, vinOnly);
+    referenceOnlyValues = llc_evaluate_sinusoidal_excitation( ...
+        probeTimes, referenceOnly);
+    verifyEqual(testCase, vinOnlyValues(:, 2), 48 * ones(size(probeTimes)), ...
+                'AbsTol', 0);
+    verifyEqual(testCase, referenceOnlyValues(:, 1), ...
+                400 * ones(size(probeTimes)), 'AbsTol', 0);
 end
 
 function testContinuousRandomBuilderPreservesGlobalRandomState(testCase)
@@ -244,6 +255,32 @@ function testContinuousRandomProfileIsC1AtEveryBoundary(testCase)
         verifyEqual(testCase, leftDerivative, rightDerivative, ...
                     'AbsTol', 100);
     end
+end
+
+function testContinuousRandomProfileRejectsInconsistentSegmentStarts(testCase)
+    base = llc_build_continuous_random_excitation( ...
+        formalRandomization(), formalTiming(), formalCondition('both', 12091));
+
+    malformed = base;
+    malformed.segments(2).start_time_s = malformed.segments(2).start_time_s - 1e-3;
+    verifyError(testCase, @()llc_evaluate_sinusoidal_excitation(0, malformed), ...
+                'llc:InvalidExcitation');
+
+    malformed = base;
+    malformed.segments(2).start_time_s = malformed.segments(2).start_time_s + 1e-3;
+    verifyError(testCase, @()llc_evaluate_sinusoidal_excitation(0, malformed), ...
+                'llc:InvalidExcitation');
+
+    malformed = base;
+    malformed.segments(5).start_time_s = ...
+        malformed.segments(4).start_time_s + 1.5 * malformed.segment_duration_s;
+    verifyError(testCase, @()llc_evaluate_sinusoidal_excitation(0, malformed), ...
+                'llc:InvalidExcitation');
+
+    malformed = rmfield(base.segments, 'start_time_s');
+    base.segments = malformed;
+    verifyError(testCase, @()llc_evaluate_sinusoidal_excitation(0, base), ...
+                'llc:InvalidExcitation');
 end
 
 function testSharedModelHasExcitationInterface(testCase)
@@ -354,6 +391,29 @@ function testFormalContinuousRandomGeneratorSmoke(testCase)
     verifyEqual(testCase, ...
                 trajectory.network_input_contract.excluded_control_names, ...
                 {'reference_voltage_v'});
+
+    [~, resumed] = generate_llc_sinusoidal_excitation_dataset( ...
+        [], configFile, true);
+    verifyEqual(testCase, resumed.successful_count, 1);
+    verifyEqual(testCase, resumed.skipped_count, 1);
+
+    changedSeed = sourceConfig;
+    changedSeed.conditions.random_seed = changedSeed.conditions.random_seed + 1;
+    writeJson(configFile, changedSeed);
+    [~, seedMismatch] = generate_llc_sinusoidal_excitation_dataset( ...
+        [], configFile, true);
+    verifyEqual(testCase, seedMismatch.failed_count, 1);
+    verifyEqual(testCase, seedMismatch.entries.error_identifier, ...
+                'llc:InvalidExistingOutput');
+
+    changedRange = sourceConfig;
+    changedRange.random_excitation.vin.center_range = [381; 419];
+    writeJson(configFile, changedRange);
+    [~, rangeMismatch] = generate_llc_sinusoidal_excitation_dataset( ...
+        [], configFile, true);
+    verifyEqual(testCase, rangeMismatch.failed_count, 1);
+    verifyEqual(testCase, rangeMismatch.entries.error_identifier, ...
+                'llc:InvalidExistingOutput');
     clear cleanupConfig cleanupDirectory;
 end
 

@@ -45,16 +45,31 @@ function [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
 
     for index = 1:numel(generation.conditions)
         condition = generation.conditions(index);
+        requestSignature = buildGenerationRequestSignature( ...
+            hardware, generation, condition);
         entries(index).trajectory_id = condition.trajectory_id;
         outputFile = fullfile(outputDirectory, ...
             sprintf('trajectory_%04d_%s.mat', index, condition.trajectory_id));
         try
             if resumeExisting && isfile(outputFile)
-                existing = load(outputFile, 'trajectory_id', 'schema_version');
-                if ~isfield(existing, 'trajectory_id') || ...
-                        ~strcmp(existing.trajectory_id, condition.trajectory_id) || ...
-                        ~isfield(existing, 'schema_version') || ...
-                        ~strcmp(existing.schema_version, trajectorySchema)
+                if formalGeneration
+                    requiredFields = {'trajectory_id', 'schema_version', ...
+                        'generation_request_signature'};
+                else
+                    requiredFields = {'trajectory_id', 'schema_version'};
+                end
+                availableFields = who('-file', outputFile);
+                if ~all(ismember(requiredFields, availableFields))
+                    error('llc:InvalidExistingOutput', ...
+                          'Existing trajectory lacks resume-integrity metadata: %s', ...
+                          outputFile);
+                end
+                existing = load(outputFile, requiredFields{:});
+                signatureMismatch = formalGeneration && ...
+                    ~strcmp(existing.generation_request_signature, requestSignature);
+                if ~strcmp(existing.trajectory_id, condition.trajectory_id) || ...
+                        ~strcmp(existing.schema_version, trajectorySchema) || ...
+                        signatureMismatch
                     error('llc:InvalidExistingOutput', ...
                           'Existing trajectory does not match the requested condition: %s', outputFile);
                 end
@@ -145,6 +160,7 @@ function [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
                 trajectory.dataset_split = condition.dataset_role;
                 trajectory.random_seed = condition.random_seed;
                 trajectory.realized_excitation_segments = excitation.segments;
+                trajectory.generation_request_signature = requestSignature;
             end
             inputContract = struct;
             inputContract.state_names = cellstr(hardware.state_names);
@@ -206,6 +222,15 @@ function schema = outputSchema(generation)
     else
         schema = 'llc-sinusoidal-excitation-fixed-grid-trajectory-v1';
     end
+end
+
+function signature = buildGenerationRequestSignature(hardware, generation, condition)
+    normalizedGeneration = rmfield(generation, ...
+        {'output_directory', 'conditions'});
+    request = struct('hardware', hardware, ...
+                     'generation', normalizedGeneration, ...
+                     'condition', condition);
+    signature = jsonencode(request);
 end
 
 function simulation = applyInitialState(simulation, modelName, initialState)
