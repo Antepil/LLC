@@ -14,10 +14,29 @@
 - `scripts/`：工程脚本。
 - `tests/`：单元测试、集成测试与测试素材。
 
-## 初始状态
+## Python 环境
 
-Python 最低版本为 3.11。requirements.txt 当前不声明依赖，实现功能时按需添加。
-pyproject.toml 仅保留打包元信息，不注册命令入口。
+Python 最低版本为 3.11。神经 ODE 网络使用 CUDA 版 PyTorch；推荐在独立环境中安装：
+
+```bash
+python -m venv .venv-gpu
+source .venv-gpu/bin/activate
+python -m pip install -r requirements.txt
+python -m pip install --no-deps -e .
+```
+
+`requirements.txt` 固定使用 CUDA 13.0 wheel。安装后可检查 CUDA 构建和 GPU 是否可用：
+
+```bash
+python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+python -m unittest discover -s tests -v
+```
+
+基础配置位于 `configs/base.yaml`。当前网络接收已经归一化的九维张量：四个状态、
+四路门极信号和归一化 Vin，输出四个归一化状态导数。归一化尺度计算、数据读取、
+训练循环与 ODE 求解器尚未实现。配置文件由调用方读取后，将其中的 `model` mapping
+传给 `llc_dynamics.core.build_neural_ode`；核心包不负责解析 YAML。
+
 MATLAB 目录已包含 LLC Simulink 模型、开环原始轨迹入口和闭环 PFM 数据生成入口，使用方法见
 [`matlab/README.md`](matlab/README.md)。Python 训练功能仍未实现。
 .gitkeep 仅用于让 Git 保留其余空目录。

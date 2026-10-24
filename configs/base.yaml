@@ -1,39 +1,38 @@
-# Python 训练与评估的数据读取配置；当前仅定义配置，尚无读取实现。
-data:
-  # 相对路径统一以项目根目录解析，不依赖命令执行目录。
-  root: data/normalized
-  # MATLAB 导出数据经转换脚本生成 NPZ。
-  format: npz
-  # 下列路径相对于 data.root，引用已经划分好的集合。
-  subsets:
-    train: train
-    validation: validation
-    test: test
+# LLC Neural ODE 基础配置。
+# 当前阶段只定义网络及其输入输出契约；数据读取、训练和 ODE 求解器尚未实现。
 
-  # 每条轨迹包含 t: [T]、x: [T, D_x]，可选 u: [T, D_u]，以及 trajectory_id。
-  # t 以秒为单位，有限且严格递增；x/u 必须有限且与 t 长度一致。
-  # 初始状态取 x[0]；固定字段名及形状由数据契约和读取代码校验。
-  sample_type: trajectory
-  # 预测量顺序必须与数据集元信息一致。
-  # x: [T, 5]；列顺序固定，批次形状为 [B, T, 5]。
-  state_variables: [i_Lr, v_Cr, i_Lm, v_o, i_o]
-  state_units: [A, V, A, V, A]
-  # 输入变量按 u 的列顺序排列。
-  # 已确认的四路开关输入；Vin、R、PFM 频率待明确字段名后补充。
-  input_variables: [Q1_A_high, Q2_A_low, Q3_B_high, Q4_B_low]
-  # 以下约束仅适用于这四路开关，读取代码尚未实现。
+data:
+  # 状态、门极和 Vin 的顺序同时定义网络九维输入的拼接顺序。
+  state_variables: [i_Lr, v_Cr, i_Lm, v_o]
+  state_units: [A, V, A, V]
   binary_input_variables: [Q1_A_high, Q2_A_low, Q3_B_high, Q4_B_low]
   binary_input_allowed_values: [0, 1]
-  # 有外部输入时必填：zero_order_hold 或 linear；无输入时保持 null。
-  input_interpolation: null
+  continuous_input_variables: [Vin]
+  input_variables:
+    [i_Lr, v_Cr, i_Lm, v_o, Q1_A_high, Q2_A_low, Q3_B_high, Q4_B_low, Vin]
 
-  # full_trajectory 使用完整轨迹；window 按采样点切窗。
-  # 长度与时间网格由实际数据决定，本配置不假定轨迹等长或等间隔。
-  sampling:
-    mode: full_trajectory
-    # window 模式必填：length >= 2，stride >= 1，均为整数；完整轨迹模式为 null。
-    window_length: null
-    window_stride: null
+condition:
+  # 首版模型仅用于这一固定负载；负载不是网络输入。
+  load_resistance_ohm: 2.304
 
-  # 数据应先按独立运行/来源组划分集合，再切窗，避免跨集合泄漏。
-  # 归一化统计量随数据保存，且只能由训练集拟合；此处不计算统计量。
+model:
+  # f_theta([z, gates, Vin / V_ref]) -> dz/dtau
+  input_dim: 9
+  output_dim: 4
+  hidden_dims: [128, 128]
+  activation: SiLU
+  dtype: float64
+  device: cuda:0
+  initialization:
+    weights: xavier_uniform
+    gain: 1.0
+    bias: zeros
+
+normalization:
+  # 网络只接收已归一化的张量。尺度计算和物理量转换由后续适配器负责。
+  network_input: [z_i_Lr, z_v_Cr, z_i_Lm, z_v_o,
+                  Q1_A_high, Q2_A_low, Q3_B_high, Q4_B_low, Vin_over_V_ref]
+  network_output: [dz_i_Lr_dtau, dz_v_Cr_dtau, dz_i_Lm_dtau, dz_v_o_dtau]
+  state_scale_rule: null
+  vin_reference_v: null
+  time_reference_s: null
