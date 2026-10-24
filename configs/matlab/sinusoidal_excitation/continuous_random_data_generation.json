@@ -4,12 +4,12 @@
   "output_directory": "data/raw/llc_sinusoidal_excitation/continuous_random",
   "mat_file_version": "-v7",
   "fixed_load_ohm": 2.304,
-  "simulation_stop_time_s": 0.205,
+  "simulation_stop_time_s": 0.045,
   "solver": {
     "name": "ode23t",
-    "max_step_s": 1E-7,
-    "relative_tolerance": 1E-5,
-    "absolute_tolerance": 1E-7
+    "max_step_s": 1e-7,
+    "relative_tolerance": 0.00001,
+    "absolute_tolerance": 1e-7
   },
   "sampling": {
     "method": "uniform_reference_cycle_v1",
@@ -19,69 +19,786 @@
     "interval_signal_sampling": "midpoint_previous"
   },
   "control": {
-    "control_period_s": 1E-5,
-    "voltage_filter_time_constant_s": 5E-5,
+    "control_period_s": 0.00001,
+    "voltage_filter_time_constant_s": 0.00005,
     "reference_ramp_time_s": 0.001,
     "initial_frequency_hz": 180000,
     "bias_frequency_hz": 110000,
     "minimum_frequency_hz": 60000,
     "maximum_frequency_hz": 250000,
-    "frequency_slew_rate_hz_per_s": 1E8,
+    "frequency_slew_rate_hz_per_s": 100000000,
     "proportional_gain_hz_per_v": 1000,
-    "integral_gain_hz_per_v_s": 5E6,
-    "deadtime_s": 2E-7,
-    "minimum_pulse_s": 5E-7
+    "integral_gain_hz_per_v_s": 5000000,
+    "deadtime_s": 2e-7,
+    "minimum_pulse_s": 5e-7
   },
   "excitation_timing": {
     "start_time_s": 0.005,
-    "segment_duration_s": 0.020,
+    "segment_duration_s": 0.02,
     "transition_time_s": 0.002,
-    "segment_count": 10
+    "segment_count": 2
   },
   "random_excitation": {
-    "frequency_choices_hz": [100, 300, 1000],
+    "frequency_choices_hz": [
+      100,
+      300,
+      1000
+    ],
     "vin": {
       "initial_center_value": 400,
-      "center_range": [380, 420],
-      "amplitude_range": [10, 20]
+      "center_range": [
+        380,
+        420
+      ],
+      "amplitude_range": [
+        10,
+        20
+      ]
     },
     "reference": {
       "initial_center_value": 48,
-      "center_range": [45.6, 50.4],
-      "amplitude_range": [1.2, 2.4]
+      "center_range": [
+        45.6,
+        50.4
+      ],
+      "amplitude_range": [
+        1.2,
+        2.4
+      ]
     }
   },
-  "initial_state": [0, 0, 0, 0],
+  "initial_state": [
+    0,
+    0,
+    0,
+    0
+  ],
   "validation_tolerances": {
-    "timing_s": 1E-12,
-    "initial_state_abs": 1E-8,
-    "stop_time_abs_s": 1E-12,
-    "excitation_abs_v": 1E-9
+    "timing_s": 1e-12,
+    "initial_state_abs": 1e-8,
+    "stop_time_abs_s": 1e-12,
+    "excitation_abs_v": 1e-9
   },
   "conditions": [
-    {"trajectory_id": "train_vin_01", "dataset_role": "train", "excitation_group": "vin_only", "random_seed": 21001},
-    {"trajectory_id": "train_vin_02", "dataset_role": "train", "excitation_group": "vin_only", "random_seed": 21002},
-    {"trajectory_id": "train_vin_03", "dataset_role": "train", "excitation_group": "vin_only", "random_seed": 21003},
-    {"trajectory_id": "train_vin_04", "dataset_role": "train", "excitation_group": "vin_only", "random_seed": 21004},
-    {"trajectory_id": "train_reference_01", "dataset_role": "train", "excitation_group": "reference_only", "random_seed": 22001},
-    {"trajectory_id": "train_reference_02", "dataset_role": "train", "excitation_group": "reference_only", "random_seed": 22002},
-    {"trajectory_id": "train_reference_03", "dataset_role": "train", "excitation_group": "reference_only", "random_seed": 22003},
-    {"trajectory_id": "train_reference_04", "dataset_role": "train", "excitation_group": "reference_only", "random_seed": 22004},
-    {"trajectory_id": "train_both_01", "dataset_role": "train", "excitation_group": "both", "random_seed": 23001},
-    {"trajectory_id": "train_both_02", "dataset_role": "train", "excitation_group": "both", "random_seed": 23002},
-    {"trajectory_id": "train_both_03", "dataset_role": "train", "excitation_group": "both", "random_seed": 23003},
-    {"trajectory_id": "train_both_04", "dataset_role": "train", "excitation_group": "both", "random_seed": 23004},
-    {"trajectory_id": "train_both_05", "dataset_role": "train", "excitation_group": "both", "random_seed": 23005},
-    {"trajectory_id": "train_both_06", "dataset_role": "train", "excitation_group": "both", "random_seed": 23006},
-    {"trajectory_id": "train_both_07", "dataset_role": "train", "excitation_group": "both", "random_seed": 23007},
-    {"trajectory_id": "train_both_08", "dataset_role": "train", "excitation_group": "both", "random_seed": 23008},
-    {"trajectory_id": "validation_vin_01", "dataset_role": "validation", "excitation_group": "vin_only", "random_seed": 31001},
-    {"trajectory_id": "validation_reference_01", "dataset_role": "validation", "excitation_group": "reference_only", "random_seed": 32001},
-    {"trajectory_id": "validation_both_01", "dataset_role": "validation", "excitation_group": "both", "random_seed": 33001},
-    {"trajectory_id": "validation_both_02", "dataset_role": "validation", "excitation_group": "both", "random_seed": 33002},
-    {"trajectory_id": "test_vin_01", "dataset_role": "test", "excitation_group": "vin_only", "random_seed": 41001},
-    {"trajectory_id": "test_reference_01", "dataset_role": "test", "excitation_group": "reference_only", "random_seed": 42001},
-    {"trajectory_id": "test_both_01", "dataset_role": "test", "excitation_group": "both", "random_seed": 43001},
-    {"trajectory_id": "test_both_02", "dataset_role": "test", "excitation_group": "both", "random_seed": 43002}
+    {
+      "trajectory_id": "train_vin_01",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21001
+    },
+    {
+      "trajectory_id": "train_vin_02",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21002
+    },
+    {
+      "trajectory_id": "train_vin_03",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21003
+    },
+    {
+      "trajectory_id": "train_vin_04",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21004
+    },
+    {
+      "trajectory_id": "train_vin_05",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21005
+    },
+    {
+      "trajectory_id": "train_vin_06",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21006
+    },
+    {
+      "trajectory_id": "train_vin_07",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21007
+    },
+    {
+      "trajectory_id": "train_vin_08",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21008
+    },
+    {
+      "trajectory_id": "train_vin_09",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21009
+    },
+    {
+      "trajectory_id": "train_vin_10",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21010
+    },
+    {
+      "trajectory_id": "train_vin_11",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21011
+    },
+    {
+      "trajectory_id": "train_vin_12",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21012
+    },
+    {
+      "trajectory_id": "train_vin_13",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21013
+    },
+    {
+      "trajectory_id": "train_vin_14",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21014
+    },
+    {
+      "trajectory_id": "train_vin_15",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21015
+    },
+    {
+      "trajectory_id": "train_vin_16",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21016
+    },
+    {
+      "trajectory_id": "train_vin_17",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21017
+    },
+    {
+      "trajectory_id": "train_vin_18",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21018
+    },
+    {
+      "trajectory_id": "train_vin_19",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21019
+    },
+    {
+      "trajectory_id": "train_vin_20",
+      "dataset_role": "train",
+      "excitation_group": "vin_only",
+      "random_seed": 21020
+    },
+    {
+      "trajectory_id": "train_reference_01",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22001
+    },
+    {
+      "trajectory_id": "train_reference_02",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22002
+    },
+    {
+      "trajectory_id": "train_reference_03",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22003
+    },
+    {
+      "trajectory_id": "train_reference_04",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22004
+    },
+    {
+      "trajectory_id": "train_reference_05",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22005
+    },
+    {
+      "trajectory_id": "train_reference_06",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22006
+    },
+    {
+      "trajectory_id": "train_reference_07",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22007
+    },
+    {
+      "trajectory_id": "train_reference_08",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22008
+    },
+    {
+      "trajectory_id": "train_reference_09",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22009
+    },
+    {
+      "trajectory_id": "train_reference_10",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22010
+    },
+    {
+      "trajectory_id": "train_reference_11",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22011
+    },
+    {
+      "trajectory_id": "train_reference_12",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22012
+    },
+    {
+      "trajectory_id": "train_reference_13",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22013
+    },
+    {
+      "trajectory_id": "train_reference_14",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22014
+    },
+    {
+      "trajectory_id": "train_reference_15",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22015
+    },
+    {
+      "trajectory_id": "train_reference_16",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22016
+    },
+    {
+      "trajectory_id": "train_reference_17",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22017
+    },
+    {
+      "trajectory_id": "train_reference_18",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22018
+    },
+    {
+      "trajectory_id": "train_reference_19",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22019
+    },
+    {
+      "trajectory_id": "train_reference_20",
+      "dataset_role": "train",
+      "excitation_group": "reference_only",
+      "random_seed": 22020
+    },
+    {
+      "trajectory_id": "train_both_01",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23001
+    },
+    {
+      "trajectory_id": "train_both_02",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23002
+    },
+    {
+      "trajectory_id": "train_both_03",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23003
+    },
+    {
+      "trajectory_id": "train_both_04",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23004
+    },
+    {
+      "trajectory_id": "train_both_05",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23005
+    },
+    {
+      "trajectory_id": "train_both_06",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23006
+    },
+    {
+      "trajectory_id": "train_both_07",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23007
+    },
+    {
+      "trajectory_id": "train_both_08",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23008
+    },
+    {
+      "trajectory_id": "train_both_09",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23009
+    },
+    {
+      "trajectory_id": "train_both_10",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23010
+    },
+    {
+      "trajectory_id": "train_both_11",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23011
+    },
+    {
+      "trajectory_id": "train_both_12",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23012
+    },
+    {
+      "trajectory_id": "train_both_13",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23013
+    },
+    {
+      "trajectory_id": "train_both_14",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23014
+    },
+    {
+      "trajectory_id": "train_both_15",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23015
+    },
+    {
+      "trajectory_id": "train_both_16",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23016
+    },
+    {
+      "trajectory_id": "train_both_17",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23017
+    },
+    {
+      "trajectory_id": "train_both_18",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23018
+    },
+    {
+      "trajectory_id": "train_both_19",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23019
+    },
+    {
+      "trajectory_id": "train_both_20",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23020
+    },
+    {
+      "trajectory_id": "train_both_21",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23021
+    },
+    {
+      "trajectory_id": "train_both_22",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23022
+    },
+    {
+      "trajectory_id": "train_both_23",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23023
+    },
+    {
+      "trajectory_id": "train_both_24",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23024
+    },
+    {
+      "trajectory_id": "train_both_25",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23025
+    },
+    {
+      "trajectory_id": "train_both_26",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23026
+    },
+    {
+      "trajectory_id": "train_both_27",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23027
+    },
+    {
+      "trajectory_id": "train_both_28",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23028
+    },
+    {
+      "trajectory_id": "train_both_29",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23029
+    },
+    {
+      "trajectory_id": "train_both_30",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23030
+    },
+    {
+      "trajectory_id": "train_both_31",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23031
+    },
+    {
+      "trajectory_id": "train_both_32",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23032
+    },
+    {
+      "trajectory_id": "train_both_33",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23033
+    },
+    {
+      "trajectory_id": "train_both_34",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23034
+    },
+    {
+      "trajectory_id": "train_both_35",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23035
+    },
+    {
+      "trajectory_id": "train_both_36",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23036
+    },
+    {
+      "trajectory_id": "train_both_37",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23037
+    },
+    {
+      "trajectory_id": "train_both_38",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23038
+    },
+    {
+      "trajectory_id": "train_both_39",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23039
+    },
+    {
+      "trajectory_id": "train_both_40",
+      "dataset_role": "train",
+      "excitation_group": "both",
+      "random_seed": 23040
+    },
+    {
+      "trajectory_id": "validation_vin_01",
+      "dataset_role": "validation",
+      "excitation_group": "vin_only",
+      "random_seed": 31001
+    },
+    {
+      "trajectory_id": "validation_vin_02",
+      "dataset_role": "validation",
+      "excitation_group": "vin_only",
+      "random_seed": 31002
+    },
+    {
+      "trajectory_id": "validation_vin_03",
+      "dataset_role": "validation",
+      "excitation_group": "vin_only",
+      "random_seed": 31003
+    },
+    {
+      "trajectory_id": "validation_vin_04",
+      "dataset_role": "validation",
+      "excitation_group": "vin_only",
+      "random_seed": 31004
+    },
+    {
+      "trajectory_id": "validation_vin_05",
+      "dataset_role": "validation",
+      "excitation_group": "vin_only",
+      "random_seed": 31005
+    },
+    {
+      "trajectory_id": "validation_reference_01",
+      "dataset_role": "validation",
+      "excitation_group": "reference_only",
+      "random_seed": 32001
+    },
+    {
+      "trajectory_id": "validation_reference_02",
+      "dataset_role": "validation",
+      "excitation_group": "reference_only",
+      "random_seed": 32002
+    },
+    {
+      "trajectory_id": "validation_reference_03",
+      "dataset_role": "validation",
+      "excitation_group": "reference_only",
+      "random_seed": 32003
+    },
+    {
+      "trajectory_id": "validation_reference_04",
+      "dataset_role": "validation",
+      "excitation_group": "reference_only",
+      "random_seed": 32004
+    },
+    {
+      "trajectory_id": "validation_reference_05",
+      "dataset_role": "validation",
+      "excitation_group": "reference_only",
+      "random_seed": 32005
+    },
+    {
+      "trajectory_id": "validation_both_01",
+      "dataset_role": "validation",
+      "excitation_group": "both",
+      "random_seed": 33001
+    },
+    {
+      "trajectory_id": "validation_both_02",
+      "dataset_role": "validation",
+      "excitation_group": "both",
+      "random_seed": 33002
+    },
+    {
+      "trajectory_id": "validation_both_03",
+      "dataset_role": "validation",
+      "excitation_group": "both",
+      "random_seed": 33003
+    },
+    {
+      "trajectory_id": "validation_both_04",
+      "dataset_role": "validation",
+      "excitation_group": "both",
+      "random_seed": 33004
+    },
+    {
+      "trajectory_id": "validation_both_05",
+      "dataset_role": "validation",
+      "excitation_group": "both",
+      "random_seed": 33005
+    },
+    {
+      "trajectory_id": "validation_both_06",
+      "dataset_role": "validation",
+      "excitation_group": "both",
+      "random_seed": 33006
+    },
+    {
+      "trajectory_id": "validation_both_07",
+      "dataset_role": "validation",
+      "excitation_group": "both",
+      "random_seed": 33007
+    },
+    {
+      "trajectory_id": "validation_both_08",
+      "dataset_role": "validation",
+      "excitation_group": "both",
+      "random_seed": 33008
+    },
+    {
+      "trajectory_id": "validation_both_09",
+      "dataset_role": "validation",
+      "excitation_group": "both",
+      "random_seed": 33009
+    },
+    {
+      "trajectory_id": "validation_both_10",
+      "dataset_role": "validation",
+      "excitation_group": "both",
+      "random_seed": 33010
+    },
+    {
+      "trajectory_id": "test_vin_01",
+      "dataset_role": "test",
+      "excitation_group": "vin_only",
+      "random_seed": 41001
+    },
+    {
+      "trajectory_id": "test_vin_02",
+      "dataset_role": "test",
+      "excitation_group": "vin_only",
+      "random_seed": 41002
+    },
+    {
+      "trajectory_id": "test_vin_03",
+      "dataset_role": "test",
+      "excitation_group": "vin_only",
+      "random_seed": 41003
+    },
+    {
+      "trajectory_id": "test_vin_04",
+      "dataset_role": "test",
+      "excitation_group": "vin_only",
+      "random_seed": 41004
+    },
+    {
+      "trajectory_id": "test_vin_05",
+      "dataset_role": "test",
+      "excitation_group": "vin_only",
+      "random_seed": 41005
+    },
+    {
+      "trajectory_id": "test_reference_01",
+      "dataset_role": "test",
+      "excitation_group": "reference_only",
+      "random_seed": 42001
+    },
+    {
+      "trajectory_id": "test_reference_02",
+      "dataset_role": "test",
+      "excitation_group": "reference_only",
+      "random_seed": 42002
+    },
+    {
+      "trajectory_id": "test_reference_03",
+      "dataset_role": "test",
+      "excitation_group": "reference_only",
+      "random_seed": 42003
+    },
+    {
+      "trajectory_id": "test_reference_04",
+      "dataset_role": "test",
+      "excitation_group": "reference_only",
+      "random_seed": 42004
+    },
+    {
+      "trajectory_id": "test_reference_05",
+      "dataset_role": "test",
+      "excitation_group": "reference_only",
+      "random_seed": 42005
+    },
+    {
+      "trajectory_id": "test_both_01",
+      "dataset_role": "test",
+      "excitation_group": "both",
+      "random_seed": 43001
+    },
+    {
+      "trajectory_id": "test_both_02",
+      "dataset_role": "test",
+      "excitation_group": "both",
+      "random_seed": 43002
+    },
+    {
+      "trajectory_id": "test_both_03",
+      "dataset_role": "test",
+      "excitation_group": "both",
+      "random_seed": 43003
+    },
+    {
+      "trajectory_id": "test_both_04",
+      "dataset_role": "test",
+      "excitation_group": "both",
+      "random_seed": 43004
+    },
+    {
+      "trajectory_id": "test_both_05",
+      "dataset_role": "test",
+      "excitation_group": "both",
+      "random_seed": 43005
+    },
+    {
+      "trajectory_id": "test_both_06",
+      "dataset_role": "test",
+      "excitation_group": "both",
+      "random_seed": 43006
+    },
+    {
+      "trajectory_id": "test_both_07",
+      "dataset_role": "test",
+      "excitation_group": "both",
+      "random_seed": 43007
+    },
+    {
+      "trajectory_id": "test_both_08",
+      "dataset_role": "test",
+      "excitation_group": "both",
+      "random_seed": 43008
+    },
+    {
+      "trajectory_id": "test_both_09",
+      "dataset_role": "test",
+      "excitation_group": "both",
+      "random_seed": 43009
+    },
+    {
+      "trajectory_id": "test_both_10",
+      "dataset_role": "test",
+      "excitation_group": "both",
+      "random_seed": 43010
+    }
   ]
 }

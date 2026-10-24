@@ -134,16 +134,16 @@ config = fullfile(pwd, 'configs', 'matlab', 'sinusoidal_excitation', ...
 [files, summary] = generate_llc_sinusoidal_excitation_dataset([], config, true);
 ```
 
-配置包含 24 条 205 ms 轨迹，其中前 5 ms 用于启动，随后包含 10 个 20 ms 激励段。每段开始时重新抽取
+配置包含 120 条 45 ms 轨迹，其中前 5 ms 用于启动，随后包含 2 个 20 ms 激励段。每段开始时重新抽取
 Vin 和/或 Vref 的中心值、幅值与频率，并在 2 ms 内使用三次平滑步函数过渡；频率经积分形成连续相位，
 因此激励值及一阶导数在更新点连续。负载固定为 2.304 Ω。
 
 Vin 的中心值范围为 380–420 V、峰值幅度为 10–20 V；Vref 的中心值范围为 45.6–50.4 V、峰值幅度为
 1.2–2.4 V；两者的频率均从 100、300、1000 Hz 中独立抽取。每条轨迹保存独立随机种子与全部实际分段参数。
-数据按整条轨迹划分为 16 条训练、4 条验证和 4 条测试，包含 6 条仅 Vin、6 条仅 Vref 和 12 条双变量激励。
+数据按整条轨迹划分为 80 条训练、20 条验证和 20 条测试，包含 30 条仅 Vin、30 条仅 Vref 和 60 条双变量激励。
 
 固定网格采样率为 11 MHz。每条轨迹包含
-`0.205 * 110000 * 100 + 1 = 2255001` 个状态时刻，24 条共 54120024 个状态时刻。网络输入契约仍为
+`0.045 * 110000 * 100 + 1 = 495001` 个状态时刻，120 条共 59400120 个状态时刻。网络输入契约仍为
 4 个状态、4 路实际门极和 Vin；Vref 只保存为控制与审计信号。输出按数据划分和激励类型写入
 `data/raw/llc_sinusoidal_excitation/continuous_random/<split>/<excitation_group>`，其中 `split` 为
 `train`、`validation` 或 `test`，`excitation_group` 为 `vin_only`、`reference_only` 或 `both`。文件使用 MAT v7。
