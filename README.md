@@ -41,6 +41,10 @@ python -m unittest discover -s tests -v
 刻意保持为 `null`，拟合后必须使用 `resolved(...).as_mapping()` 生成包含四个明确尺度的
 运行配置，并把它交给检查点管理器。验证集和测试集不得参与尺度拟合。
 
+`llc_dynamics.support.load_matlab_trajectory` 读取固定 Vin 或正弦激励的 MATLAB v5/v7
+轨迹，统一返回状态节点、节点 Vin 和准确门极事件表。读取时严格校验状态/门极顺序、时间轴、
+有限值、二值门极、桥臂互斥、事件覆盖范围及固定负载契约；当前默认只接受 2.304 Ω 数据。
+
 训练目标为 `NormalizedRolloutMSE`：比较数值积分器生成的 `[batch, time, 4]` 归一化
 状态序列与目标序列，对除初始节点之外的所有元素取均方误差。损失模块不计算有限差分导数，
 也不执行 ODE 积分；训练循环、窗口生成和事件感知 ODE 求解器尚未实现。
