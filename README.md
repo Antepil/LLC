@@ -47,7 +47,12 @@ python -m unittest discover -s tests -v
 
 训练目标为 `NormalizedRolloutMSE`：比较数值积分器生成的 `[batch, time, 4]` 归一化
 状态序列与目标序列，对除初始节点之外的所有元素取均方误差。损失模块不计算有限差分导数，
-也不执行 ODE 积分；训练循环、窗口生成和事件感知 ODE 求解器尚未实现。
+也不执行 ODE 积分。
+
+`TrajectoryWindowDataset` 按 `configs/base.yaml` 的 `window` 配置从已经完成集合划分的完整轨迹
+惰性生成定长窗口。每个窗口只用真实起始状态初始化，保留准确门极事件和节点 Vin；起点事件
+决定初始门极，终点事件不进入当前窗口。`collate_rollout_windows` 堆叠定长状态和 Vin，同时将
+各窗口数量不同的门极事件保留为独立张量。训练循环和事件感知 ODE 求解器尚未实现。
 
 ## 训练检查点
 
