@@ -11,6 +11,20 @@ function llc_initialize_model(model)
         error('llc:InvalidSimulationConfig', 'The injected run configuration is incomplete.');
     end
     assignin(workspace, 'llc_p', override.parameters);
+    if isfield(override, 'excitation')
+        excitation = override.excitation;
+    elseif isfield(override, 'control') && ...
+            isfield(override.control, 'reference_voltage_v') && ...
+            isfield(override.parameters, 'vin_v')
+        excitation = struct( ...
+            'start_time_s', 0, 'envelope_rise_time_s', 0, ...
+            'vin', constantSignal(override.parameters.vin_v), ...
+            'reference', constantSignal(override.control.reference_voltage_v));
+    else
+        error('llc:InvalidSimulationConfig', ...
+              'Run configuration does not define a valid excitation.');
+    end
+    assignin(workspace, 'llc_excitation', excitation);
     if isfield(override, 'events')
         assignin(workspace, 'llc_gate_source', override.events.gate_source);
         assignin(workspace, 'llc_events', override.events);
@@ -28,4 +42,9 @@ function llc_initialize_model(model)
               'MaxStep', num2str(solver.max_step_s, 17), ...
               'RelTol', num2str(solver.relative_tolerance, 17), ...
               'AbsTol', num2str(solver.absolute_tolerance, 17));
+end
+
+function signal = constantSignal(value)
+    signal = struct('center_value', value, 'amplitude', 0, ...
+                    'frequency_hz', 0, 'phase_rad', 0);
 end

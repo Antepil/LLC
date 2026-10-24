@@ -97,3 +97,25 @@ setup_paths;
 
 报告包含四个文件：轨迹汇总 CSV、状态统计 CSV、控制量统计 CSV，以及保存完整配置和上述表格的 MAT
 文件。默认文件名前缀和检查阈值都在 `dataset_validation.json` 中配置。
+
+## 独立的 Vin/Vref 正弦激励数据
+
+正弦激励流程与上述固定工况闭环流程使用同一个
+`llc_full_bridge_closed_loop.slx`，但使用独立配置、入口和输出目录。旧入口仍生成每条轨迹内 Vin、Vref
+固定的数据；新入口只负责 Vin/Vref 连续正弦激励，两者不互相调用。
+
+首轮筛选配置位于
+`configs/matlab/sinusoidal_excitation/screening_data_generation.json`，负载固定为 2.304 Ω，包含 Vin
+单独激励和 Vref 单独激励各三条轨迹。运行：
+
+```matlab
+addpath('matlab');
+setup_paths;
+[files, summary] = generate_llc_sinusoidal_excitation_dataset();
+```
+
+输出写入 `data/raw/llc_sinusoidal_excitation/screening`。Vin 和 Vref 在 5 ms 开始，经 2 ms 半余弦包络
+进入正弦激励；每条轨迹保存到 57 ms。新配置为延长后的动态轨迹显式设置 60–250 kHz 频率范围，并在
+饱和方向冻结积分。该设置只存在于正弦激励配置，旧固定工况配置仍采用原有无频率边界策略。
+网络输入所需的 Vin 与四路实际门极均保存到固定网格，Vref、
+频率指令及原始求解器输出作为控制与审计信号同时保存。正弦数据不使用固定参考值的稳态判据。

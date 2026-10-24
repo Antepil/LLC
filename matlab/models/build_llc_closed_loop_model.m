@@ -38,6 +38,7 @@ function modelFile = build_llc_closed_loop_model(modelDirectory)
     controller = [closedLoopModel '/ClosedLoopPFM'];
     workspace = get_param(closedLoopModel, 'ModelWorkspace');
     assignin(workspace, 'llc_control', buildControlPlaceholder());
+    assignin(workspace, 'llc_excitation', buildExcitationPlaceholder());
     add_block('simulink/User-Defined Functions/Level-2 MATLAB S-Function', controller, ...
               'Position', sourcePosition, 'FunctionName', 'llc_closed_loop_pfm', ...
               'Parameters', 'llc_control');
@@ -45,6 +46,32 @@ function modelFile = build_llc_closed_loop_model(modelDirectory)
     add_block('simulink/Signal Routing/Demux', outputDemux, ...
               'Position', sourcePosition + [150, 0, 155, 100], 'Outputs', '[4 5]');
     add_line(closedLoopModel, 'Measure_V_o/1', 'ClosedLoopPFM/1', 'autorouting', 'on');
+
+    excitation = [closedLoopModel '/ClosedLoopExcitation'];
+    add_block('simulink/User-Defined Functions/Level-2 MATLAB S-Function', excitation, ...
+              'Position', [50, 650, 190, 690], ...
+              'FunctionName', 'llc_closed_loop_excitation', ...
+              'Parameters', 'llc_excitation');
+    excitationDemux = [closedLoopModel '/ExcitationDemux'];
+    add_block('simulink/Signal Routing/Demux', excitationDemux, ...
+              'Position', [220, 640, 225, 700], 'Outputs', '2');
+    add_line(closedLoopModel, 'ClosedLoopExcitation/1', 'ExcitationDemux/1', 'autorouting', 'on');
+    add_line(closedLoopModel, 'ExcitationDemux/2', 'ClosedLoopPFM/2', 'autorouting', 'on');
+
+    replace_block(closedLoopModel, 'Name', 'Vin', ...
+        'fl_lib/Electrical/Electrical Sources/Controlled Voltage Source', 'noprompt');
+    vinConverter = [closedLoopModel '/VinCommand'];
+    add_block('nesl_utility/Simulink-PS Converter', vinConverter, ...
+              'Position', [250, 650, 330, 680]);
+    set_param(vinConverter, 'Unit', 'V', 'FilteringAndDerivatives', 'zero');
+    add_line(closedLoopModel, 'ExcitationDemux/1', 'VinCommand/1', 'autorouting', 'on');
+    converterPorts = get_param(vinConverter, 'PortHandles');
+    vinPorts = get_param([closedLoopModel '/Vin'], 'PortHandles');
+    add_line(closedLoopModel, converterPorts.RConn(1), vinPorts.RConn(1), ...
+             'autorouting', 'on');
+    referencePorts = get_param([closedLoopModel '/PrimaryReference'], 'PortHandles');
+    add_line(closedLoopModel, vinPorts.RConn(2), referencePorts.LConn(1), ...
+             'autorouting', 'on');
     add_line(closedLoopModel, 'ClosedLoopPFM/1', 'ClosedLoopOutputDemux/1', 'autorouting', 'on');
     add_line(closedLoopModel, 'ClosedLoopOutputDemux/1', 'GateDemux/1', 'autorouting', 'on');
     add_line(closedLoopModel, 'ClosedLoopOutputDemux/1', 'Gates/1', 'autorouting', 'on');
@@ -56,9 +83,24 @@ function modelFile = build_llc_closed_loop_model(modelDirectory)
               'VariableName', 'llc_control_log', 'SaveFormat', 'Timeseries', ...
               'MaxDataPoints', 'inf', 'Decimation', '1');
     add_line(closedLoopModel, 'ClosedLoopOutputDemux/2', 'Control/1', 'autorouting', 'on');
+    excitationLog = [closedLoopModel '/Excitation'];
+    add_block('simulink/Sinks/To Workspace', excitationLog, ...
+              'Position', [250, 700, 330, 730], ...
+              'VariableName', 'llc_excitation_log', 'SaveFormat', 'Timeseries', ...
+              'MaxDataPoints', 'inf', 'Decimation', '1');
+    add_line(closedLoopModel, 'ClosedLoopExcitation/1', 'Excitation/1', 'autorouting', 'on');
     save_system(closedLoopModel, modelFile);
     clear cleanupClosedLoop;
     closeIfLoaded(closedLoopModel);
+end
+
+function excitation = buildExcitationPlaceholder()
+    constantVin = struct('center_value', 400, 'amplitude', 0, ...
+                         'frequency_hz', 0, 'phase_rad', 0);
+    constantReference = struct('center_value', 48, 'amplitude', 0, ...
+                               'frequency_hz', 0, 'phase_rad', 0);
+    excitation = struct('start_time_s', 0, 'envelope_rise_time_s', 0, ...
+                        'vin', constantVin, 'reference', constantReference);
 end
 
 function control = buildControlPlaceholder()
