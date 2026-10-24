@@ -144,7 +144,9 @@ Vin 的中心值范围为 380–420 V、峰值幅度为 10–20 V；Vref 的中�
 
 固定网格采样率为 11 MHz。每条轨迹包含
 `0.205 * 110000 * 100 + 1 = 2255001` 个状态时刻，24 条共 54120024 个状态时刻。网络输入契约仍为
-4 个状态、4 路实际门极和 Vin；Vref 只保存为控制与审计信号。输出写入
-`data/raw/llc_sinusoidal_excitation/continuous_random`，使用 MAT v7。MATLAB 的 HDF5/v7.3 驱动无法直接在本项目的
+4 个状态、4 路实际门极和 Vin；Vref 只保存为控制与审计信号。输出按数据划分和激励类型写入
+`data/raw/llc_sinusoidal_excitation/continuous_random/<split>/<excitation_group>`，其中 `split` 为
+`train`、`validation` 或 `test`，`excitation_group` 为 `vin_only`、`reference_only` 或 `both`。文件使用 MAT v7。
+MATLAB 的 HDF5/v7.3 驱动无法直接在本项目的
 WSL UNC 路径创建或重新打开文件，而单条轨迹小于 MAT v7 的变量大小限制。完整批量生成耗时较长，不属于自动测试；
 测试使用相同正式配置架构的缩短轨迹验证端到端生成链路。

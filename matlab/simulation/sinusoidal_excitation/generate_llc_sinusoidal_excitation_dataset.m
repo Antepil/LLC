@@ -48,7 +48,15 @@ function [files, summary] = generate_llc_sinusoidal_excitation_dataset( ...
         requestSignature = buildGenerationRequestSignature( ...
             hardware, generation, condition);
         entries(index).trajectory_id = condition.trajectory_id;
-        outputFile = fullfile(outputDirectory, ...
+        conditionDirectory = outputDirectory;
+        if formalGeneration
+            conditionDirectory = fullfile(outputDirectory, ...
+                condition.dataset_role, condition.excitation_group);
+            if ~isfolder(conditionDirectory)
+                mkdir(conditionDirectory);
+            end
+        end
+        outputFile = fullfile(conditionDirectory, ...
             sprintf('trajectory_%04d_%s.mat', index, condition.trajectory_id));
         try
             if resumeExisting && isfile(outputFile)
