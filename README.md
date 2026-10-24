@@ -58,15 +58,31 @@ python -m unittest discover -s tests -v
 `rollout_window` 和 `rollout_batch` 使用可微的固定步长 RK4 生成归一化状态序列。求解器在准确
 门极事件处分段，事件前的分段始终使用旧门极；Vin 在每个 RK4 阶段按相邻状态节点线性插值。
 `solver.max_step_tau` 是归一化时间中的最大子步长，所有分段都会细分到不超过该值。batch 中
-不同事件表的窗口逐个积分后堆叠；当前训练循环尚未实现。
+不同事件表的窗口逐个积分后堆叠。
+
+## 训练
+
+训练入口从 `training.data_directory` 下的 `train`、`validation`、`test` 子目录递归读取
+MATLAB 轨迹。三个集合按完整轨迹隔离，状态尺度只从训练集合拟合；随后按窗口构造 DataLoader，
+执行事件感知 rollout、反向传播、AdamW 参数更新、验证集评估和 Top-K/last 检查点保存。训练结束
+后报告测试集指标，但测试集不参与选模。运行：
+
+```bash
+source .venv-gpu/bin/activate
+python scripts/train.py --config configs/base.yaml
+```
+
+`training.resume_last: true` 时，如果检查点目录已有 `last.ckpt`，训练会严格核对模型和归一化
+契约并从下一 epoch 继续。正式训练前需先按 `matlab/README.md` 生成 continuous-random 数据；
+任一集合目录缺失或为空都会显式报错。
 
 ## 训练检查点
 
 `configs/base.yaml` 已定义检查点目录、Top-K 指标与保留数量、文件名模板以及
 `last.ckpt` 开关。`checkpoint.directory` 始终由调用方提供的项目根目录解析，不依赖
 启动命令所在目录。Python 侧通过 `llc_dynamics.support.CheckpointConfig` 严格校验该
-配置，再由 `CheckpointManager` 保存和恢复状态；当前尚无训练入口，未来训练循环负责
-在合适的 epoch 调用它，也负责决定是否自动恢复。
+配置，再由 `CheckpointManager` 保存和恢复状态；训练循环在每个 epoch 验证后调用它，并按
+`training.resume_last` 决定是否自动恢复。
 
 每次保存包含模型、优化器、可选学习率调度器、epoch、global step、全部指标、运行配置
 以及 Python、PyTorch 和已初始化 CUDA 设备的随机数状态。最佳文件按验证集指标
@@ -83,7 +99,7 @@ python -m unittest discover -s tests -v
 `save_last_snapshot` 配为 `true`，配置解析会直接报错。
 
 MATLAB 目录已包含 LLC Simulink 模型、开环原始轨迹入口和闭环 PFM 数据生成入口，使用方法见
-[`matlab/README.md`](matlab/README.md)。Python 训练功能仍未实现。
+[`matlab/README.md`](matlab/README.md)。
 .gitkeep 仅用于让 Git 保留其余空目录。
 
 已训练模型可通过 `scripts/export_matlab_model.py` 导出为原生 MATLAB 网络契约，再由
