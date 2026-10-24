@@ -2,10 +2,24 @@
 
 from __future__ import annotations
 
+import copy
+import json
+import math
+import os
+import random
+import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
+from numbers import Real
 from pathlib import Path
 from typing import Any
+
+import torch
+from torch import nn
+
+
+_PAYLOAD_SCHEMA_VERSION = 1
+_MANIFEST_SCHEMA_VERSION = 1
 
 
 def _require_exact_keys(
@@ -127,7 +141,9 @@ class CheckpointConfig:
         if not isinstance(format_str, str):
             raise TypeError("checkpoint.topk.format_str must be a string")
         try:
-            rendered = format_str.format(epoch=0, **{monitor_key: 0.0})
+            rendered = format_str.format(
+                epoch=0, global_step=0, **{monitor_key: 0.0}
+            )
         except (IndexError, KeyError, ValueError) as error:
             raise ValueError(
                 "checkpoint.topk.format_str cannot be rendered"
@@ -151,3 +167,289 @@ class CheckpointConfig:
             k=k,
             format_str=format_str,
         )
+
+
+@dataclass(frozen=True)
+class _RankedEntry:
+    filename: str
+    metric: float
+    epoch: int
+    global_step: int
+
+    @classmethod
+    def from_mapping(cls, value: Any, *, directory: Path) -> _RankedEntry:
+        if not isinstance(value, Mapping):
+            raise ValueError("checkpoint manifest entries must be mappings")
+        try:
+            _require_exact_keys(
+                value,
+                {"filename", "metric", "epoch", "global_step"},
+                section="checkpoint manifest entry",
+            )
+        except (TypeError, ValueError) as error:
+            raise ValueError("invalid checkpoint manifest entry") from error
+
+        filename = value["filename"]
+        if (
+            not isinstance(filename, str)
+            or not filename
+            or Path(filename).is_absolute()
+            or len(Path(filename).parts) != 1
+            or Path(filename).suffix != ".ckpt"
+            or filename == "last.ckpt"
+        ):
+            raise ValueError("checkpoint manifest contains an unsafe filename")
+        metric = _finite_number(value["metric"], name="manifest metric")
+        epoch = _nonnegative_integer(value["epoch"], name="manifest epoch")
+        global_step = _nonnegative_integer(
+            value["global_step"], name="manifest global_step"
+        )
+        if not (directory / filename).is_file():
+            raise ValueError(f"checkpoint manifest file is missing: {filename}")
+        return cls(filename, metric, epoch, global_step)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "filename": self.filename,
+            "metric": self.metric,
+            "epoch": self.epoch,
+            "global_step": self.global_step,
+        }
+
+
+def _nonnegative_integer(value: Any, *, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{name} must be an integer")
+    if value < 0:
+        raise ValueError(f"{name} must be nonnegative")
+    return value
+
+
+def _finite_number(value: Any, *, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise TypeError(f"{name} must be a real number")
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError(f"{name} must be finite")
+    return result
+
+
+class CheckpointManager:
+    """Save trusted-run PyTorch checkpoints under a deterministic policy."""
+
+    def __init__(self, config: CheckpointConfig) -> None:
+        if not isinstance(config, CheckpointConfig):
+            raise TypeError("config must be a CheckpointConfig")
+        self.config = config
+        self.config.directory.mkdir(parents=True, exist_ok=True)
+        self._manifest_path = self.config.directory / "index.json"
+        self._entries = self._read_manifest()
+
+    def save(
+        self,
+        *,
+        model: nn.Module,
+        optimizer: torch.optim.Optimizer,
+        epoch: int,
+        global_step: int,
+        metrics: Mapping[str, float],
+        run_config: Mapping[str, Any],
+        scheduler: Any | None = None,
+    ) -> Path | None:
+        """Save training state and return the retained latest/ranked path, if any."""
+
+        if not isinstance(model, nn.Module):
+            raise TypeError("model must be a torch.nn.Module")
+        if not isinstance(optimizer, torch.optim.Optimizer):
+            raise TypeError("optimizer must be a torch optimizer")
+        epoch = _nonnegative_integer(epoch, name="epoch")
+        global_step = _nonnegative_integer(global_step, name="global_step")
+        normalized_metrics = self._validate_metrics(metrics)
+        if not isinstance(run_config, Mapping):
+            raise TypeError("run_config must be a mapping")
+        if scheduler is not None and not callable(getattr(scheduler, "state_dict", None)):
+            raise TypeError("scheduler must provide state_dict()")
+
+        monitor_value = normalized_metrics[self.config.topk.monitor_key]
+        filename = self._render_filename(
+            epoch=epoch, global_step=global_step, metrics=normalized_metrics
+        )
+        candidate = _RankedEntry(
+            filename=filename,
+            metric=monitor_value,
+            epoch=epoch,
+            global_step=global_step,
+        )
+        existing = next(
+            (entry for entry in self._entries if entry.filename == filename), None
+        )
+        if existing is not None and existing != candidate:
+            raise FileExistsError(
+                f"checkpoint filename collision for different saved step: {filename}"
+            )
+        ranked_path = self.config.directory / filename
+        if existing is None and ranked_path.exists():
+            raise FileExistsError(f"checkpoint filename collision: {filename}")
+
+        payload = {
+            "schema_version": _PAYLOAD_SCHEMA_VERSION,
+            "model_state": model.state_dict(),
+            "optimizer_state": optimizer.state_dict(),
+            "scheduler_state": None if scheduler is None else scheduler.state_dict(),
+            "epoch": epoch,
+            "global_step": global_step,
+            "metrics": normalized_metrics,
+            "run_config": copy.deepcopy(dict(run_config)),
+            "python_rng_state": random.getstate(),
+            "torch_rng_state": torch.get_rng_state(),
+            "cuda_rng_states": (
+                torch.cuda.get_rng_state_all() if torch.cuda.is_initialized() else []
+            ),
+        }
+
+        retained = existing is not None or self._qualifies(candidate)
+        old_entries = list(self._entries)
+        pruned: _RankedEntry | None = None
+        wrote_new_ranked = False
+        try:
+            if retained:
+                if existing is None:
+                    self._entries.append(candidate)
+                self._entries.sort(key=self._ranking_key)
+                if len(self._entries) > self.config.topk.k:
+                    pruned = self._entries.pop()
+                self._atomic_torch_save(payload, ranked_path)
+                wrote_new_ranked = existing is None
+
+            last_path = self.config.directory / "last.ckpt"
+            if self.config.save_last_ckpt:
+                self._atomic_torch_save(payload, last_path)
+
+            if retained:
+                self._write_manifest()
+                if pruned is not None and pruned.filename != filename:
+                    (self.config.directory / pruned.filename).unlink()
+        except BaseException:
+            self._entries = old_entries
+            if wrote_new_ranked:
+                ranked_path.unlink(missing_ok=True)
+            raise
+
+        if self.config.save_last_ckpt:
+            return last_path
+        return ranked_path if retained else None
+
+    def _validate_metrics(self, metrics: Mapping[str, float]) -> dict[str, float]:
+        if not isinstance(metrics, Mapping):
+            raise TypeError("metrics must be a mapping")
+        monitor_key = self.config.topk.monitor_key
+        if monitor_key not in metrics:
+            raise ValueError(f"metrics is missing monitored key: {monitor_key}")
+        normalized: dict[str, float] = {}
+        for key, value in metrics.items():
+            if not isinstance(key, str) or not key:
+                raise TypeError("metric keys must be nonempty strings")
+            normalized[key] = _finite_number(value, name=f"metric {key!r}")
+        return normalized
+
+    def _render_filename(
+        self, *, epoch: int, global_step: int, metrics: Mapping[str, float]
+    ) -> str:
+        try:
+            rendered = self.config.topk.format_str.format(
+                epoch=epoch, global_step=global_step, **metrics
+            )
+        except (IndexError, KeyError, ValueError) as error:
+            raise ValueError("checkpoint filename template cannot be rendered") from error
+        path = Path(rendered)
+        if (
+            path.is_absolute()
+            or len(path.parts) != 1
+            or path.suffix != ".ckpt"
+            or rendered == "last.ckpt"
+        ):
+            raise ValueError("checkpoint filename template rendered an unsafe name")
+        return rendered
+
+    def _ranking_key(self, entry: _RankedEntry) -> tuple[float, int, int]:
+        metric = -entry.metric if self.config.topk.mode == "max" else entry.metric
+        return metric, -entry.epoch, -entry.global_step
+
+    def _qualifies(self, candidate: _RankedEntry) -> bool:
+        if len(self._entries) < self.config.topk.k:
+            return True
+        return self._ranking_key(candidate) < self._ranking_key(self._entries[-1])
+
+    def _read_manifest(self) -> list[_RankedEntry]:
+        if not self._manifest_path.exists():
+            return []
+        try:
+            document = json.loads(self._manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            raise ValueError("checkpoint manifest is not valid JSON") from error
+        if not isinstance(document, Mapping):
+            raise ValueError("checkpoint manifest must be a mapping")
+        try:
+            _require_exact_keys(
+                document,
+                {"schema_version", "entries"},
+                section="checkpoint manifest",
+            )
+        except (TypeError, ValueError) as error:
+            raise ValueError("invalid checkpoint manifest") from error
+        if document["schema_version"] != _MANIFEST_SCHEMA_VERSION:
+            raise ValueError("unsupported checkpoint manifest schema version")
+        raw_entries = document["entries"]
+        if not isinstance(raw_entries, list):
+            raise ValueError("checkpoint manifest entries must be a list")
+        if len(raw_entries) > self.config.topk.k:
+            raise ValueError("checkpoint manifest contains more than top-k entries")
+        entries = [
+            _RankedEntry.from_mapping(value, directory=self.config.directory)
+            for value in raw_entries
+        ]
+        filenames = [entry.filename for entry in entries]
+        if len(filenames) != len(set(filenames)):
+            raise ValueError("checkpoint manifest contains duplicate filenames")
+        entries.sort(key=self._ranking_key)
+        return entries
+
+    def _write_manifest(self) -> None:
+        document = {
+            "schema_version": _MANIFEST_SCHEMA_VERSION,
+            "entries": [entry.as_dict() for entry in self._entries],
+        }
+        encoded = (json.dumps(document, indent=2, sort_keys=True) + "\n").encode()
+        self._atomic_bytes_write(encoded, self._manifest_path)
+
+    def _atomic_torch_save(self, payload: Mapping[str, Any], destination: Path) -> None:
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=self.config.directory,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+        )
+        os.close(descriptor)
+        temporary_path = Path(temporary_name)
+        try:
+            torch.save(payload, temporary_path)
+            with temporary_path.open("rb") as file_handle:
+                os.fsync(file_handle.fileno())
+            os.replace(temporary_path, destination)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+    def _atomic_bytes_write(self, data: bytes, destination: Path) -> None:
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=self.config.directory,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+        )
+        temporary_path = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "wb") as file_handle:
+                file_handle.write(data)
+                file_handle.flush()
+                os.fsync(file_handle.fileno())
+            os.replace(temporary_path, destination)
+        finally:
+            temporary_path.unlink(missing_ok=True)
