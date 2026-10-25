@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import random
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from numbers import Real
@@ -54,6 +55,7 @@ class TrainingConfig:
     learning_rate: float
     weight_decay: float
     gradient_clip_norm: float | None
+    log_every_steps: int
     resume_last: bool
 
     @classmethod
@@ -81,6 +83,7 @@ class TrainingConfig:
             "seed",
             "optimizer",
             "gradient_clip_norm",
+            "log_every_steps",
             "resume_last",
         }
         _require_exact_keys(raw, expected, "training")
@@ -155,6 +158,9 @@ class TrainingConfig:
                 optimizer["weight_decay"], "training.optimizer.weight_decay"
             ),
             gradient_clip_norm=clip,
+            log_every_steps=_positive_int(
+                raw["log_every_steps"], "training.log_every_steps"
+            ),
             resume_last=_boolean(raw["resume_last"], "training.resume_last"),
         )
 
@@ -183,6 +189,11 @@ def train_from_config(
 
     training = TrainingConfig.from_mapping(root_config, project_root=project_root)
     _seed_everything(training.seed)
+    print(
+        f"[setup] dataset_policy={training.dataset_policy} | "
+        f"data={training.data_directory}",
+        flush=True,
+    )
     dataset = load_training_dataset(root_config, training=training)
     trajectories = dataset.trajectories
     normalization = NormalizationConfig.from_mapping(root_config)
@@ -212,6 +223,14 @@ def train_from_config(
     else:
         normalizer = normalization.build(dtype=_model_dtype(root_config))
         resolved_normalization = normalization
+    print(
+        "[normalization] state_scales="
+        + json.dumps(
+            [float(value) for value in normalizer.state_scales],
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
 
     run_config = copy.deepcopy(dict(root_config))
     run_config["normalization"] = resolved_normalization.as_mapping()
@@ -235,6 +254,23 @@ def train_from_config(
         for role, items in trajectories.items()
         if items
     }
+    split_counts = {role: len(items) for role, items in trajectories.items()}
+    print(
+        f"[setup] device={device} | trajectories={split_counts} | "
+        f"epochs={training.epochs}",
+        flush=True,
+    )
+    print(
+        f"rollout training batches: {{'rollout': {training.batch_size}}}",
+        flush=True,
+    )
+    print(
+        f"  [rollout] train_windows={len(loaders['train'].dataset)} | "
+        f"train_batch={training.batch_size} | "
+        f"validation_windows={len(loaders['validation'].dataset)} | "
+        f"validation_batch={training.batch_size}",
+        flush=True,
+    )
     start_epoch = 0
     global_step = 0
     if training.resume_last and last_path.is_file():
@@ -254,6 +290,7 @@ def train_from_config(
 
     final_metrics: dict[str, float] = {}
     for epoch in range(start_epoch, training.epochs):
+        train_began = time.perf_counter()
         train_mse, steps = run_epoch(
             model=model,
             loader=loaders["train"],
@@ -262,8 +299,12 @@ def train_from_config(
             device=device,
             optimizer=optimizer,
             gradient_clip_norm=training.gradient_clip_norm,
+            log_every_steps=training.log_every_steps,
+            global_step_offset=global_step,
         )
+        train_seconds = time.perf_counter() - train_began
         global_step += steps
+        validation_began = time.perf_counter()
         val_mse, _ = run_epoch(
             model=model,
             loader=loaders["validation"],
@@ -271,11 +312,12 @@ def train_from_config(
             loss_function=loss_function,
             device=device,
         )
+        validation_seconds = time.perf_counter() - validation_began
         final_metrics = {
             "train_rollout_mse": train_mse,
             "val_rollout_mse": val_mse,
         }
-        manager.save(
+        checkpoint_path = manager.save(
             model=model,
             optimizer=optimizer,
             epoch=epoch,
@@ -283,9 +325,27 @@ def train_from_config(
             metrics=final_metrics,
             run_config=run_config,
         )
+        epoch_seconds = train_seconds + validation_seconds
+        row = {
+            "stage": "rollout",
+            "epoch": epoch + 1,
+            "epochs": training.epochs,
+            "global_step": global_step,
+            "batches": steps,
+            "learning_rate": optimizer.param_groups[0]["lr"],
+            "train_rollout_mse": train_mse,
+            "val_rollout_mse": val_mse,
+            "epoch_seconds": epoch_seconds,
+            "train_seconds": train_seconds,
+            "validation_seconds": validation_seconds,
+            "checkpoint": None if checkpoint_path is None else str(checkpoint_path),
+        }
+        _append_jsonl(manager.config.directory / "training.jsonl", row)
         print(
-            f"epoch {epoch + 1}/{training.epochs} "
-            f"train_rollout_mse={train_mse:.6e} val_rollout_mse={val_mse:.6e}",
+            f"  [rollout] epoch {epoch + 1}/{training.epochs} | "
+            f"train {train_mse:.3e} | val {val_mse:.3e} | "
+            f"{epoch_seconds:.1f}s | train {train_seconds:.1f}s | "
+            f"validation {validation_seconds:.1f}s | batches {steps}",
             flush=True,
         )
 
@@ -311,8 +371,8 @@ def train_from_config(
         )
         final_metrics["test_rollout_mse"] = test_mse
         print(
-            f"test_rollout_mse={test_mse:.6e} selected_epoch={selected.epoch + 1} "
-            f"checkpoint={selected_checkpoint}",
+            f"  [test] selected_epoch {selected.epoch + 1} | "
+            f"mse {test_mse:.3e} | checkpoint {selected_checkpoint}",
             flush=True,
         )
     else:
@@ -419,9 +479,13 @@ def load_trajectory_splits(
                 f"trajectory files overlap between splits: {min(duplicates)}"
             )
         resolved_files.update(files)
-        result[role] = tuple(
-            load_matlab_trajectory(path, config=root_config) for path in files
-        )
+        print(f"  [data] {role} trajectories={len(files)}", flush=True)
+        loaded: list[MATLABTrajectory] = []
+        for index, path in enumerate(files, start=1):
+            loaded.append(load_matlab_trajectory(path, config=root_config))
+            if index == 1 or index % 10 == 0 or index == len(files):
+                print(f"  [data] {role} loaded {index}/{len(files)}", flush=True)
+        result[role] = tuple(loaded)
     identifiers = [item.trajectory_id for split in result.values() for item in split]
     if len(set(identifiers)) != len(identifiers):
         raise ValueError("trajectory_id values must be unique across all splits")
@@ -461,10 +525,15 @@ def run_epoch(
     device: torch.device,
     optimizer: torch.optim.Optimizer | None = None,
     gradient_clip_norm: float | None = None,
+    log_every_steps: int | None = None,
+    global_step_offset: int = 0,
 ) -> tuple[float, int]:
     """Run one training or evaluation epoch and return element-weighted MSE."""
 
     training = optimizer is not None
+    if log_every_steps is not None:
+        log_every_steps = _positive_int(log_every_steps, "log_every_steps")
+    global_step_offset = _nonnegative_int(global_step_offset, "global_step_offset")
     model.train(training)
     total_squared_error = 0.0
     total_elements = 0
@@ -496,12 +565,34 @@ def run_epoch(
                     ) from error
                 optimizer.step()
                 steps += 1
+                if (
+                    steps == 1
+                    or (log_every_steps is not None and steps % log_every_steps == 0)
+                    or steps == len(loader)
+                ):
+                    print(
+                        f"  [update {global_step_offset + steps}] "
+                        f"loss={float(loss.detach()):.7e}",
+                        flush=True,
+                    )
             element_count = batch.target_z[:, 1:].numel()
             total_squared_error += float(loss.detach()) * element_count
             total_elements += element_count
     if total_elements == 0:
         raise ValueError("data loader produced no rollout targets")
     return total_squared_error / total_elements, steps
+
+
+def _append_jsonl(path: Path, row: Mapping[str, Any]) -> None:
+    """Append one complete epoch record while rejecting non-JSON metrics."""
+
+    if not isinstance(path, Path):
+        raise TypeError("JSONL path must be a pathlib.Path")
+    if not isinstance(row, Mapping):
+        raise TypeError("JSONL row must be a mapping")
+    encoded = json.dumps(dict(row), allow_nan=False, sort_keys=True)
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(encoded + "\n")
 
 
 def _read_dataset_manifest(

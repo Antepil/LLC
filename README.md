@@ -74,6 +74,10 @@ source .venv-gpu/bin/activate
 python scripts/train.py --config configs/base.yaml
 ```
 
+终端日志采用 Cuk 项目的阶段化布局：数据加载显示各集合进度；首个、最后一个及每隔
+`training.log_every_steps` 个优化器 update 输出一次损失；每轮结束输出 train/validation MSE、
+总耗时、分项耗时和 batch 数。完整的逐轮记录同时追加到检查点目录的 `training.jsonl`。
+
 `training.resume_last: true` 时，如果检查点目录已有 `last.ckpt`，训练先恢复其中的归一化尺度，
 再严格核对模型、归一化契约和完整数据身份，从下一 epoch 继续。正式训练前需先按
 `matlab/README.md` 生成 continuous-random 数据；缺少任何正式轨迹都会显式报错。训练结束后

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -130,6 +132,7 @@ def root_config(*, epochs: int) -> dict[str, object]:
                 "weight_decay": 0.0,
             },
             "gradient_clip_norm": 1.0,
+            "log_every_steps": 1,
             "resume_last": True,
         },
         "checkpoint": {
@@ -173,6 +176,7 @@ class TrainingConfigTests(unittest.TestCase):
                             "weight_decay": 0.0,
                         },
                         "gradient_clip_norm": 1.0,
+                        "log_every_steps": 1,
                         "resume_last": True,
                     }
                 },
@@ -387,12 +391,14 @@ class EpochTests(unittest.TestCase):
                 "llc_dynamics.training.load_training_dataset",
                 return_value=dataset,
             ):
-                first = train_from_config(
-                    root_config(epochs=1), project_root=project_root
-                )
-                resumed = train_from_config(
-                    root_config(epochs=2), project_root=project_root
-                )
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    first = train_from_config(
+                        root_config(epochs=1), project_root=project_root
+                    )
+                    resumed = train_from_config(
+                        root_config(epochs=2), project_root=project_root
+                    )
 
             self.assertEqual(first.start_epoch, 0)
             self.assertEqual(first.completed_epochs, 1)
@@ -409,6 +415,19 @@ class EpochTests(unittest.TestCase):
             )
             self.assertEqual(resumed.selected_epoch, 1)
             self.assertTrue(resumed.selected_checkpoint.is_file())
+            terminal = output.getvalue()
+            self.assertIn("rollout training batches:", terminal)
+            self.assertIn("  [update 1] loss=", terminal)
+            self.assertIn("  [rollout] epoch 1/1 | train ", terminal)
+            self.assertIn(" | validation ", terminal)
+            rows = [
+                json.loads(line)
+                for line in (
+                    project_root / "artifacts/checkpoints/training.jsonl"
+                ).read_text().splitlines()
+            ]
+            self.assertEqual([row["epoch"] for row in rows], [1, 2])
+            self.assertTrue(all(row["stage"] == "rollout" for row in rows))
 
     def test_resume_reuses_checkpoint_scales_and_rejects_changed_dataset(self) -> None:
         splits = {

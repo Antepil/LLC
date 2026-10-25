@@ -80,6 +80,8 @@ training:
     learning_rate: 1.0e-3
     weight_decay: 1.0e-4
   gradient_clip_norm: 1.0
+  # 首个 update、最后一个 update，以及每隔该数量的 update 输出一次训练损失。
+  log_every_steps: 100
   resume_last: true
 
 # ==================== 检查点保存 ====================
